@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+bridge/node_modules/
+
+# Nix build outputs
+result
+
+# Compiled module plugins (symlinks to Nix store)
+modules/**/*.so
+modules/**/*.dylib
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Claude Code
+.claude/
+
+# Python
+__pycache__/
+*.pyc

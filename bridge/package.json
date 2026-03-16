@@ -1,0 +1,14 @@
+{
+  "name": "logos-legos-bridge",
+  "version": "0.1.0",
+  "description": "Node.js bridge between Logos Legos UI and logos-core via logos-js-sdk",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "start:mock": "node server.js --mock"
+  },
+  "optionalDependencies": {
+    "ffi-napi": "^4.0.3",
+    "ref-napi": "^3.0.3"
+  }
+}

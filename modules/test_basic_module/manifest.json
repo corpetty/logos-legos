@@ -1,0 +1,9 @@
+{
+  "name": "test_basic_module",
+  "version": "1.0.0",
+  "main": {
+    "linux-x86_64": "test_basic_module_plugin.so",
+    "linux-amd64": "test_basic_module_plugin.so",
+    "linux-aarch64": "test_basic_module_plugin.so"
+  }
+}

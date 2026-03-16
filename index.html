@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Logos Legos — Visual Workflow Builder</title>
+
+  <!-- LiteGraph.js (same engine as ComfyUI) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/litegraph.js@0.7.18/css/litegraph.css">
+  <script src="https://cdn.jsdelivr.net/npm/litegraph.js@0.7.18/build/litegraph.js"></script>
+
+  <!-- App styles -->
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Toolbar -->
+    <div id="toolbar">
+      <div class="brand">
+        <div class="logo-icon">L</div>
+        LOGOS LEGOS
+      </div>
+
+      <div class="separator"></div>
+
+      <button id="btn-toggle-sidebar" class="toolbar-btn" title="Toggle sidebar">
+        <span class="icon">&#9776;</span>
+      </button>
+
+      <div class="separator"></div>
+
+      <button id="btn-clear" class="toolbar-btn" title="Clear workflow">
+        <span class="icon">&#10005;</span> Clear
+      </button>
+      <button id="btn-arrange" class="toolbar-btn" title="Auto-arrange nodes">
+        <span class="icon">&#9638;</span> Arrange
+      </button>
+      <button id="btn-fit" class="toolbar-btn" title="Zoom to fit">
+        <span class="icon">&#8982;</span> Fit
+      </button>
+
+      <div class="separator"></div>
+
+      <button id="btn-import" class="toolbar-btn" title="Import workflow">
+        <span class="icon">&#8593;</span> Import
+      </button>
+      <button id="btn-export" class="toolbar-btn accent" title="Export workflow">
+        <span class="icon">&#8595;</span> Export
+      </button>
+
+      <div class="separator"></div>
+
+      <button id="btn-validate" class="toolbar-btn" title="Validate workflow">
+        <span class="icon">&#10003;</span> Validate
+      </button>
+      <button id="btn-cli" class="toolbar-btn" title="Generate CLI commands">
+        <span class="icon">&gt;_</span> CLI
+      </button>
+
+      <div class="separator"></div>
+
+      <button id="btn-run" class="toolbar-btn run" title="Execute workflow via bridge">
+        <span class="icon">&#9654;</span> Run
+      </button>
+
+      <!-- Bridge connection control (right-aligned) -->
+      <div style="margin-left: auto; display: flex; align-items: center; gap: 6px;">
+        <button id="btn-connect" class="toolbar-btn" title="Connect to bridge server">
+          <span class="icon" id="connect-icon">&#9679;</span>
+          <span id="connect-label">Connect</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Main area -->
+    <div id="main">
+      <!-- Sidebar -->
+      <div id="sidebar">
+        <div id="sidebar-header">
+          <input
+            type="text"
+            id="sidebar-search"
+            placeholder="Search modules & methods..."
+            autocomplete="off"
+          >
+        </div>
+        <div id="sidebar-modules"></div>
+      </div>
+
+      <!-- Canvas -->
+      <div id="canvas-container">
+        <canvas id="graph-canvas"></canvas>
+
+        <!-- Info panel (slides in from right) -->
+        <div id="info-panel">
+          <div id="info-panel-header">
+            <h4>Details</h4>
+            <button id="info-panel-close">&times;</button>
+          </div>
+          <div id="info-content"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Status bar -->
+    <div id="statusbar">
+      <div class="status-item" id="status-connection">
+        <span class="status-dot yellow" id="status-dot"></span>
+        <span id="status-mode">Offline (static data)</span>
+      </div>
+      <div class="status-item" id="status-nodes">
+        Nodes: 0
+      </div>
+      <div class="status-item" id="status-links">
+        Links: 0
+      </div>
+      <div class="status-item" style="margin-left: auto">
+        Double-click canvas or drag from sidebar to add nodes
+      </div>
+    </div>
+  </div>
+
+  <!-- Notifications -->
+  <div id="notifications"></div>
+
+  <!-- App scripts -->
+  <script src="js/module-registry.js"></script>
+  <script src="js/bridge-client.js"></script>
+  <script src="js/node-types.js"></script>
+  <script src="js/workflow.js"></script>
+  <script src="js/app.js"></script>
+
+  <!-- Status bar updater -->
+  <script>
+    setInterval(() => {
+      if (window.app && window.app.graph) {
+        const nodes = window.app.graph._nodes?.length || 0;
+        const links = Object.keys(window.app.graph.links || {}).length;
+        document.getElementById("status-nodes").textContent = `Nodes: ${nodes}`;
+        document.getElementById("status-links").textContent = `Links: ${links}`;
+      }
+    }, 500);
+
+    // Info panel close button
+    document.getElementById("info-panel-close").addEventListener("click", () => {
+      document.getElementById("info-panel").classList.remove("visible");
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,595 @@
+{
+  "modules": [
+    {
+      "name": "logos-chat-module",
+      "displayName": "Chat",
+      "version": "0.3.1",
+      "description": "Encrypted messaging for Logos Core",
+      "author": "Logos Collective",
+      "type": "service",
+      "category": "Chat",
+      "color": "#4CAF50",
+      "dependencies": ["logos-messaging-module", "logos-capability-module"],
+      "methods": [
+        {
+          "name": "sendMessage",
+          "description": "Send a message to a channel",
+          "inputs": [
+            { "name": "channel", "type": "string", "description": "Target channel name" },
+            { "name": "content", "type": "string", "description": "Message content" }
+          ],
+          "outputs": [
+            { "name": "result", "type": "MessageResult", "description": "Send result with message ID and timestamp" }
+          ]
+        },
+        {
+          "name": "getHistory",
+          "description": "Retrieve message history for a channel",
+          "inputs": [
+            { "name": "channel", "type": "string", "description": "Channel name" },
+            { "name": "limit", "type": "number", "description": "Max messages to retrieve" }
+          ],
+          "outputs": [
+            { "name": "messages", "type": "Message[]", "description": "Array of message objects" }
+          ]
+        },
+        {
+          "name": "createChannel",
+          "description": "Create a new chat channel",
+          "inputs": [
+            { "name": "name", "type": "string", "description": "Channel name" },
+            { "name": "isPrivate", "type": "boolean", "description": "Whether channel is private" }
+          ],
+          "outputs": [
+            { "name": "channel", "type": "Channel", "description": "Created channel object" }
+          ]
+        },
+        {
+          "name": "listChannels",
+          "description": "List available channels",
+          "inputs": [],
+          "outputs": [
+            { "name": "channels", "type": "Channel[]", "description": "Array of channel objects" }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "logos-wallet-module",
+      "displayName": "Wallet",
+      "version": "0.2.5",
+      "description": "Wallet and token management",
+      "author": "Logos Collective",
+      "type": "service",
+      "category": "Wallet",
+      "color": "#FF9800",
+      "dependencies": ["logos-accounts-module"],
+      "methods": [
+        {
+          "name": "getBalance",
+          "description": "Get token balance for an address",
+          "inputs": [
+            { "name": "address", "type": "string", "description": "Wallet address" }
+          ],
+          "outputs": [
+            { "name": "balance", "type": "Balance", "description": "Balance object with amount and token info" }
+          ]
+        },
+        {
+          "name": "sendTransaction",
+          "description": "Send tokens to another address",
+          "inputs": [
+            { "name": "to", "type": "string", "description": "Recipient address" },
+            { "name": "amount", "type": "number", "description": "Amount to send" },
+            { "name": "token", "type": "string", "description": "Token identifier" }
+          ],
+          "outputs": [
+            { "name": "receipt", "type": "TransactionResult", "description": "Transaction receipt" }
+          ]
+        },
+        {
+          "name": "getTransactionHistory",
+          "description": "Get transaction history for an address",
+          "inputs": [
+            { "name": "address", "type": "string", "description": "Wallet address" },
+            { "name": "limit", "type": "number", "description": "Max transactions to return" }
+          ],
+          "outputs": [
+            { "name": "transactions", "type": "Transaction[]", "description": "Array of transactions" }
+          ]
+        },
+        {
+          "name": "signMessage",
+          "description": "Sign a message with the wallet's private key",
+          "inputs": [
+            { "name": "message", "type": "string", "description": "Message to sign" }
+          ],
+          "outputs": [
+            { "name": "signature", "type": "Signature", "description": "Cryptographic signature" }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "logos-blockchain-module",
+      "displayName": "Blockchain",
+      "version": "0.1.8",
+      "description": "Blockchain node with event emission",
+      "author": "Logos Collective",
+      "type": "service",
+      "category": "Blockchain",
+      "color": "#9C27B0",
+      "dependencies": [],
+      "methods": [
+        {
+          "name": "getLatestBlock",
+          "description": "Get the latest block from the chain",
+          "inputs": [],
+          "outputs": [
+            { "name": "block", "type": "Block", "description": "Latest block data" }
+          ]
+        },
+        {
+          "name": "getBlock",
+          "description": "Get a specific block by number",
+          "inputs": [
+            { "name": "blockNumber", "type": "number", "description": "Block number to retrieve" }
+          ],
+          "outputs": [
+            { "name": "block", "type": "Block", "description": "Block data" }
+          ]
+        },
+        {
+          "name": "submitTransaction",
+          "description": "Submit a signed transaction to the network",
+          "inputs": [
+            { "name": "signedTx", "type": "string", "description": "Signed transaction data" }
+          ],
+          "outputs": [
+            { "name": "receipt", "type": "TransactionReceipt", "description": "Transaction receipt with confirmation" }
+          ]
+        },
+        {
+          "name": "getNodeStatus",
+          "description": "Get the status of the blockchain node",
+          "inputs": [],
+          "outputs": [
+            { "name": "status", "type": "NodeStatus", "description": "Node sync status, peer count, etc." }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "logos-storage-module",
+      "displayName": "Storage",
+      "version": "0.1.4",
+      "description": "Decentralized file storage and retrieval",
+      "author": "Logos Collective",
+      "type": "service",
+      "category": "Storage",
+      "color": "#2196F3",
+      "dependencies": [],
+      "methods": [
+        {
+          "name": "store",
+          "description": "Store data in decentralized storage",
+          "inputs": [
+            { "name": "data", "type": "bytes", "description": "Data to store" },
+            { "name": "metadata", "type": "string", "description": "Optional metadata JSON" }
+          ],
+          "outputs": [
+            { "name": "receipt", "type": "StorageReceipt", "description": "Storage receipt with content ID" }
+          ]
+        },
+        {
+          "name": "retrieve",
+          "description": "Retrieve data by content ID",
+          "inputs": [
+            { "name": "contentId", "type": "string", "description": "Content identifier" }
+          ],
+          "outputs": [
+            { "name": "data", "type": "bytes", "description": "Retrieved data" },
+            { "name": "metadata", "type": "string", "description": "Associated metadata" }
+          ]
+        },
+        {
+          "name": "list",
+          "description": "List stored content by prefix",
+          "inputs": [
+            { "name": "prefix", "type": "string", "description": "Content ID prefix filter" }
+          ],
+          "outputs": [
+            { "name": "entries", "type": "StorageEntry[]", "description": "Array of storage entries" }
+          ]
+        },
+        {
+          "name": "delete",
+          "description": "Delete stored content",
+          "inputs": [
+            { "name": "contentId", "type": "string", "description": "Content ID to delete" }
+          ],
+          "outputs": [
+            { "name": "success", "type": "boolean", "description": "Whether deletion succeeded" }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "logos-accounts-module",
+      "displayName": "Accounts",
+      "version": "0.2.0",
+      "description": "Account management and identity",
+      "author": "Logos Collective",
+      "type": "service",
+      "category": "Accounts",
+      "color": "#607D8B",
+      "dependencies": [],
+      "methods": [
+        {
+          "name": "createAccount",
+          "description": "Create a new account",
+          "inputs": [
+            { "name": "name", "type": "string", "description": "Account display name" }
+          ],
+          "outputs": [
+            { "name": "account", "type": "Account", "description": "Created account object" }
+          ]
+        },
+        {
+          "name": "getAccount",
+          "description": "Get account details by ID",
+          "inputs": [
+            { "name": "accountId", "type": "string", "description": "Account identifier" }
+          ],
+          "outputs": [
+            { "name": "account", "type": "Account", "description": "Account details" }
+          ]
+        },
+        {
+          "name": "listAccounts",
+          "description": "List all accounts",
+          "inputs": [],
+          "outputs": [
+            { "name": "accounts", "type": "Account[]", "description": "Array of accounts" }
+          ]
+        },
+        {
+          "name": "authenticate",
+          "description": "Authenticate with credentials",
+          "inputs": [
+            { "name": "accountId", "type": "string", "description": "Account ID" },
+            { "name": "credentials", "type": "string", "description": "Authentication credentials" }
+          ],
+          "outputs": [
+            { "name": "token", "type": "AuthToken", "description": "Authentication token" }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "logos-messaging-module",
+      "displayName": "Messaging",
+      "version": "0.2.3",
+      "description": "Logos Messaging relay protocol (Waku-based)",
+      "author": "Logos Collective",
+      "type": "protocol",
+      "category": "Protocol",
+      "color": "#00BCD4",
+      "dependencies": [],
+      "methods": [
+        {
+          "name": "publish",
+          "description": "Publish a message to a topic",
+          "inputs": [
+            { "name": "topic", "type": "string", "description": "Topic to publish to" },
+            { "name": "payload", "type": "bytes", "description": "Message payload" }
+          ],
+          "outputs": [
+            { "name": "success", "type": "boolean", "description": "Whether publish succeeded" }
+          ]
+        },
+        {
+          "name": "subscribe",
+          "description": "Subscribe to a topic",
+          "inputs": [
+            { "name": "topic", "type": "string", "description": "Topic to subscribe to" }
+          ],
+          "outputs": [
+            { "name": "subscription", "type": "Subscription", "description": "Subscription handle" }
+          ]
+        },
+        {
+          "name": "relay",
+          "description": "Relay a message to a specific peer",
+          "inputs": [
+            { "name": "peerId", "type": "string", "description": "Target peer ID" },
+            { "name": "payload", "type": "bytes", "description": "Message payload" }
+          ],
+          "outputs": [
+            { "name": "result", "type": "RelayResult", "description": "Relay delivery result" }
+          ]
+        },
+        {
+          "name": "getPeers",
+          "description": "Get connected relay peers",
+          "inputs": [],
+          "outputs": [
+            { "name": "peers", "type": "Peer[]", "description": "Array of connected peers" }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "logos-capability-module",
+      "displayName": "Capability",
+      "version": "0.1.2",
+      "description": "Capability discovery protocol (extended-kad-disco)",
+      "author": "Logos Collective",
+      "type": "service",
+      "category": "Protocol",
+      "color": "#009688",
+      "dependencies": [],
+      "methods": [
+        {
+          "name": "discoverPeers",
+          "description": "Find peers with a specific capability",
+          "inputs": [
+            { "name": "capability", "type": "string", "description": "Capability to search for" }
+          ],
+          "outputs": [
+            { "name": "peers", "type": "Peer[]", "description": "Peers with the capability" }
+          ]
+        },
+        {
+          "name": "announceCapability",
+          "description": "Announce a capability to the network",
+          "inputs": [
+            { "name": "capability", "type": "string", "description": "Capability name" },
+            { "name": "metadata", "type": "string", "description": "Capability metadata JSON" }
+          ],
+          "outputs": [
+            { "name": "success", "type": "boolean", "description": "Whether announcement succeeded" }
+          ]
+        },
+        {
+          "name": "getCapabilities",
+          "description": "Get capabilities of a specific peer",
+          "inputs": [
+            { "name": "peerId", "type": "string", "description": "Peer identifier" }
+          ],
+          "outputs": [
+            { "name": "capabilities", "type": "Capability[]", "description": "Array of capabilities" }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "logos-irc-module",
+      "displayName": "IRC",
+      "version": "0.1.0",
+      "description": "IRC bridge module",
+      "author": "Logos Collective",
+      "type": "service",
+      "category": "Chat",
+      "color": "#8BC34A",
+      "dependencies": ["logos-messaging-module"],
+      "methods": [
+        {
+          "name": "connect",
+          "description": "Connect to an IRC server and channel",
+          "inputs": [
+            { "name": "server", "type": "string", "description": "IRC server address" },
+            { "name": "channel", "type": "string", "description": "IRC channel name" },
+            { "name": "nickname", "type": "string", "description": "IRC nickname" }
+          ],
+          "outputs": [
+            { "name": "connection", "type": "IrcConnection", "description": "Connection handle" }
+          ]
+        },
+        {
+          "name": "sendIrcMessage",
+          "description": "Send a message to an IRC channel",
+          "inputs": [
+            { "name": "connection", "type": "IrcConnection", "description": "Active connection" },
+            { "name": "message", "type": "string", "description": "Message to send" }
+          ],
+          "outputs": [
+            { "name": "success", "type": "boolean", "description": "Whether send succeeded" }
+          ]
+        },
+        {
+          "name": "getIrcHistory",
+          "description": "Get recent IRC messages",
+          "inputs": [
+            { "name": "connection", "type": "IrcConnection", "description": "Active connection" },
+            { "name": "limit", "type": "number", "description": "Max messages" }
+          ],
+          "outputs": [
+            { "name": "messages", "type": "IrcMessage[]", "description": "IRC message history" }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "logos-package-manager",
+      "displayName": "Package Manager",
+      "version": "0.3.0",
+      "description": "Package installation and dependency resolution",
+      "author": "Logos Collective",
+      "type": "management",
+      "category": "Management",
+      "color": "#795548",
+      "dependencies": [],
+      "methods": [
+        {
+          "name": "listInstalled",
+          "description": "List installed modules",
+          "inputs": [],
+          "outputs": [
+            { "name": "packages", "type": "Package[]", "description": "Installed packages" }
+          ]
+        },
+        {
+          "name": "search",
+          "description": "Search for available packages",
+          "inputs": [
+            { "name": "query", "type": "string", "description": "Search query" }
+          ],
+          "outputs": [
+            { "name": "results", "type": "Package[]", "description": "Matching packages" }
+          ]
+        },
+        {
+          "name": "install",
+          "description": "Install a package by name",
+          "inputs": [
+            { "name": "packageName", "type": "string", "description": "Package name to install" }
+          ],
+          "outputs": [
+            { "name": "result", "type": "InstallResult", "description": "Installation result" }
+          ]
+        },
+        {
+          "name": "getModuleInfo",
+          "description": "Get detailed info about a module",
+          "inputs": [
+            { "name": "moduleName", "type": "string", "description": "Module name" }
+          ],
+          "outputs": [
+            { "name": "info", "type": "ModuleInfo", "description": "Module metadata and status" }
+          ]
+        }
+      ]
+    }
+  ],
+  "utilityNodes": [
+    {
+      "name": "StringConstant",
+      "displayName": "String",
+      "category": "Utility",
+      "color": "#78909C",
+      "description": "A constant string value",
+      "properties": [
+        { "name": "value", "type": "string", "default": "" }
+      ],
+      "inputs": [],
+      "outputs": [
+        { "name": "string", "type": "string" }
+      ]
+    },
+    {
+      "name": "NumberConstant",
+      "displayName": "Number",
+      "category": "Utility",
+      "color": "#78909C",
+      "description": "A constant number value",
+      "properties": [
+        { "name": "value", "type": "number", "default": 0 }
+      ],
+      "inputs": [],
+      "outputs": [
+        { "name": "number", "type": "number" }
+      ]
+    },
+    {
+      "name": "BooleanConstant",
+      "displayName": "Boolean",
+      "category": "Utility",
+      "color": "#78909C",
+      "description": "A constant boolean value",
+      "properties": [
+        { "name": "value", "type": "boolean", "default": false }
+      ],
+      "inputs": [],
+      "outputs": [
+        { "name": "boolean", "type": "boolean" }
+      ]
+    },
+    {
+      "name": "JsonParse",
+      "displayName": "JSON Parse",
+      "category": "Utility",
+      "color": "#78909C",
+      "description": "Parse a JSON string into an object",
+      "inputs": [
+        { "name": "json", "type": "string" }
+      ],
+      "outputs": [
+        { "name": "object", "type": "object" }
+      ]
+    },
+    {
+      "name": "JsonStringify",
+      "displayName": "JSON Stringify",
+      "category": "Utility",
+      "color": "#78909C",
+      "description": "Convert an object to a JSON string",
+      "inputs": [
+        { "name": "object", "type": "object" }
+      ],
+      "outputs": [
+        { "name": "json", "type": "string" }
+      ]
+    },
+    {
+      "name": "Display",
+      "displayName": "Display",
+      "category": "Utility",
+      "color": "#E91E63",
+      "description": "Display a value (debug output)",
+      "inputs": [
+        { "name": "value", "type": "*" }
+      ],
+      "outputs": []
+    },
+    {
+      "name": "StringTemplate",
+      "displayName": "Template",
+      "category": "Utility",
+      "color": "#78909C",
+      "description": "String template with variable substitution",
+      "properties": [
+        { "name": "template", "type": "string", "default": "Hello, {name}!" }
+      ],
+      "inputs": [
+        { "name": "vars", "type": "object" }
+      ],
+      "outputs": [
+        { "name": "result", "type": "string" }
+      ]
+    }
+  ],
+  "dataTypes": {
+    "string":             { "color": "#8BC34A", "label": "String" },
+    "number":             { "color": "#FF9800", "label": "Number" },
+    "boolean":            { "color": "#E91E63", "label": "Boolean" },
+    "bytes":              { "color": "#9E9E9E", "label": "Bytes" },
+    "object":             { "color": "#607D8B", "label": "Object" },
+    "*":                  { "color": "#FFFFFF", "label": "Any" },
+    "MessageResult":      { "color": "#4CAF50", "label": "MessageResult" },
+    "Message[]":          { "color": "#4CAF50", "label": "Message[]" },
+    "Channel":            { "color": "#4CAF50", "label": "Channel" },
+    "Channel[]":          { "color": "#4CAF50", "label": "Channel[]" },
+    "Balance":            { "color": "#FF9800", "label": "Balance" },
+    "TransactionResult":  { "color": "#FF9800", "label": "TxResult" },
+    "Transaction[]":      { "color": "#FF9800", "label": "Transaction[]" },
+    "Signature":          { "color": "#FF9800", "label": "Signature" },
+    "Block":              { "color": "#9C27B0", "label": "Block" },
+    "TransactionReceipt": { "color": "#9C27B0", "label": "TxReceipt" },
+    "NodeStatus":         { "color": "#9C27B0", "label": "NodeStatus" },
+    "StorageReceipt":     { "color": "#2196F3", "label": "StorageReceipt" },
+    "StorageEntry[]":     { "color": "#2196F3", "label": "StorageEntry[]" },
+    "Account":            { "color": "#607D8B", "label": "Account" },
+    "Account[]":          { "color": "#607D8B", "label": "Account[]" },
+    "AuthToken":          { "color": "#607D8B", "label": "AuthToken" },
+    "Subscription":       { "color": "#00BCD4", "label": "Subscription" },
+    "RelayResult":        { "color": "#00BCD4", "label": "RelayResult" },
+    "Peer[]":             { "color": "#009688", "label": "Peer[]" },
+    "Capability[]":       { "color": "#009688", "label": "Capability[]" },
+    "IrcConnection":      { "color": "#8BC34A", "label": "IrcConnection" },
+    "IrcMessage[]":       { "color": "#8BC34A", "label": "IrcMessage[]" },
+    "Package[]":          { "color": "#795548", "label": "Package[]" },
+    "InstallResult":      { "color": "#795548", "label": "InstallResult" },
+    "ModuleInfo":         { "color": "#795548", "label": "ModuleInfo" }
+  }
+}
