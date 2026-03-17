@@ -1,6 +1,6 @@
 /**
  * Logos Legos - Main Application
- * ComfyUI-style visual workflow builder for Logos Core modules.
+ * Visual workflow builder for Logos Core modules — n8n-style node editor.
  */
 class LogosLegosApp {
   constructor() {

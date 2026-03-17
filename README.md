@@ -1,8 +1,10 @@
 # Logos Legos
 
-A visual workflow builder for [Logos Core](https://github.com/logos-co) modules. Think ComfyUI, but for composing Logos protocol operations — chat, wallet, blockchain, storage, and more — into executable pipelines.
+A visual workflow builder for [Logos Core](https://github.com/logos-co) modules. Think n8n, but for composing Logos protocol operations — chat, wallet, blockchain, storage, and more — into executable pipelines.
 
-Built on [LiteGraph.js](https://github.com/jagenjo/litegraph.js), the same node-graph engine behind ComfyUI.
+Built on [LiteGraph.js](https://github.com/jagenjo/litegraph.js) for the node-graph canvas, with a workflow execution model similar to n8n's node-based automation approach.
+
+> **v2 Native Architecture**: This is the v1 prototype (JavaScript / Node.js bridge). A native Qt/QML rewrite using [QuickQanava](https://github.com/cneben/QuickQanava) is underway as a collection of four Logos modules (`logos-workflow-registry`, `logos-workflow-engine`, `logos-workflow-canvas`, `logos-workflow-scheduler`). See [docs/NATIVE-ARCHITECTURE.md](docs/NATIVE-ARCHITECTURE.md) for the full design and implementation status.
 
 ## What It Does
 
