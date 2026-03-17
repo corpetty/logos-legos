@@ -31,6 +31,7 @@ class DAGExecutor {
     this.activeOutputs = new Map();     // nodeId → Set<outputSlotIndex> that fired
     this.nodeResults = new Map();       // nodeId → execution result data
     this.skipped = new Set();           // nodeIds skipped due to inactive branch
+    this.errorNodes = new Map();        // nodeId → { message, data } for nodes that errored
   }
 
   /**
@@ -63,11 +64,21 @@ class DAGExecutor {
       try {
         await this._executeNode(node, adj);
         executedCount++;
+
+        // Track nodes that handled errors internally (e.g., HTTP Request catches
+        // fetch errors and sets status to "error" without throwing)
+        if (node._executionStatus === "error") {
+          const errMsg = node._executionResult?.error || "Unknown error";
+          this.errorNodes.set(nodeId, { message: errMsg, data: node._executionResult });
+          errorCount++;
+        }
       } catch (e) {
         errorCount++;
         this.callbacks.setStatus(node, "error");
         this.callbacks.setResult(node, { error: e.message });
-        // Deactivate all outputs on error
+        // Track error for downstream error-catching nodes
+        this.errorNodes.set(nodeId, { message: e.message, data: e });
+        // Deactivate all outputs on error (error-catchers use _hasUpstreamError)
         this.activeOutputs.set(nodeId, new Set());
         this.executed.add(nodeId);
       }
@@ -108,10 +119,10 @@ class DAGExecutor {
       const link = links[linkId];
       if (!link) continue;
 
-      const sourceId = link[1];
-      const outputSlot = link[2];
-      const targetId = link[3];
-      const inputSlot = link[4];
+      const sourceId = link.origin_id !== undefined ? link.origin_id : link[1];
+      const outputSlot = link.origin_slot !== undefined ? link.origin_slot : link[2];
+      const targetId = link.target_id !== undefined ? link.target_id : link[3];
+      const inputSlot = link.target_slot !== undefined ? link.target_slot : link[4];
 
       if (adj.has(sourceId)) {
         adj.get(sourceId).push({ targetId, outputSlot, inputSlot });
@@ -152,6 +163,8 @@ class DAGExecutor {
    * - If ANY incoming connection comes from a skipped or inactive-output
    *   upstream, the node is inactive (skipped)
    * - Special case: Merge nodes are active if at least ONE input is active
+   * - Special case: Error-catching nodes (_errorCatch) are active if any
+   *   upstream node errored (even if its outputs were deactivated)
    */
   _isNodeActive(nodeId, reverseAdj) {
     const incoming = reverseAdj.get(nodeId) || [];
@@ -161,6 +174,7 @@ class DAGExecutor {
 
     const node = this.graph.getNodeById(nodeId);
     const isMerge = node?.properties?._controlFlow === "merge";
+    const isErrorCatcher = node?.properties?._errorCatch === true;
 
     if (isMerge) {
       // Merge: active if at least one incoming branch is active
@@ -171,6 +185,16 @@ class DAGExecutor {
         if (activeSlots && activeSlots.has(outputSlot)) return true;
       }
       return false;
+    }
+
+    if (isErrorCatcher) {
+      // Error-catching nodes: active if all upstream have executed (or errored),
+      // even if their outputs were deactivated
+      for (const { sourceId } of incoming) {
+        if (this.skipped.has(sourceId)) return false;
+        if (!this.executed.has(sourceId)) return false;
+      }
+      return true;
     }
 
     // Normal nodes: all incoming must be from active outputs
@@ -355,6 +379,15 @@ class DAGExecutor {
       this._activateAllOutputs(node);
       this.callbacks.setStatus(node, "success");
       return;
+    } else if (type === "try-catch") {
+      this._handleTryCatch(node);
+      return;
+    } else if (type === "retry") {
+      await this._handleRetry(node);
+      return;
+    } else if (type === "fallback") {
+      this._handleFallback(node);
+      return;
     }
 
     this.activeOutputs.set(node.id, activeSlots);
@@ -494,7 +527,8 @@ class DAGExecutor {
     const link = this.graph.links[input.link];
     if (!link) return null;
 
-    const originNode = this.graph.getNodeById(link[1]);
+    const originId = link.origin_id !== undefined ? link.origin_id : link[1];
+    const originNode = this.graph.getNodeById(originId);
     if (!originNode) return null;
 
     // Check execution result
@@ -508,12 +542,197 @@ class DAGExecutor {
     }
 
     // Try output data
-    const outputIndex = link[2];
+    const outputIndex = link.origin_slot !== undefined ? link.origin_slot : link[2];
     if (originNode.getOutputData) {
       return originNode.getOutputData(outputIndex);
     }
 
     return null;
+  }
+
+  // ── Error Handling Nodes ────────────────────────────────────────────────
+
+  /**
+   * Try/Catch: inspect upstream execution status.
+   * If upstream succeeded → route to success output (slot 0).
+   * If upstream errored → route to error output (slot 1) with error details.
+   */
+  _handleTryCatch(node) {
+    const upstreamError = this._getUpstreamError(node, 0);
+
+    if (upstreamError) {
+      // Route to error output (slot 1)
+      const errorData = { error: upstreamError.message, details: upstreamError };
+      node.setOutputData(0, null);
+      node.setOutputData(1, errorData);
+      this.activeOutputs.set(node.id, new Set([1]));
+      // Set result directly (don't use callbacks.setResult which overwrites per-slot data)
+      node._executionResult = { caught: upstreamError.message };
+      this.nodeResults.set(node.id, node._executionResult);
+    } else {
+      // Route to success output (slot 0)
+      const inputData = this._resolveControlFlowInput(node, "input");
+      node.setOutputData(0, inputData);
+      node.setOutputData(1, null);
+      this.activeOutputs.set(node.id, new Set([0]));
+      node._executionResult = inputData;
+      this.nodeResults.set(node.id, inputData);
+    }
+    this.callbacks.setStatus(node, "success");
+  }
+
+  /**
+   * Retry: if upstream errored, re-execute the upstream node up to N times.
+   * On success → route to result output (slot 0).
+   * On all retries exhausted → route to failed output (slot 1).
+   */
+  async _handleRetry(node) {
+    const maxRetries = node.properties?.maxRetries || 3;
+    const delayMs = node.properties?.delayMs || 1000;
+    const upstreamError = this._getUpstreamError(node, 0);
+
+    if (!upstreamError) {
+      // Upstream succeeded — pass through
+      const inputData = this._resolveControlFlowInput(node, "input");
+      node.setOutputData(0, inputData);
+      node.setOutputData(1, null);
+      this.activeOutputs.set(node.id, new Set([0]));
+      node._executionResult = inputData;
+      this.nodeResults.set(node.id, inputData);
+      this.callbacks.setStatus(node, "success");
+      return;
+    }
+
+    // Upstream errored — find and retry it
+    const upstreamNodeId = this._getUpstreamNodeId(node, 0);
+    const upstreamNode = upstreamNodeId ? this.graph.getNodeById(upstreamNodeId) : null;
+
+    if (!upstreamNode) {
+      node.setOutputData(0, null);
+      node.setOutputData(1, { error: "Cannot find upstream node to retry" });
+      this.activeOutputs.set(node.id, new Set([1]));
+      node._executionResult = { error: "No upstream to retry" };
+      this.callbacks.setStatus(node, "error");
+      return;
+    }
+
+    let lastError = upstreamError;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      node._executionResult = { retrying: attempt, of: maxRetries };
+
+      // Delay between retries
+      if (delayMs > 0) {
+        await new Promise(r => setTimeout(r, delayMs));
+      }
+
+      try {
+        const retryResult = await this._retryUpstreamNode(upstreamNode);
+        if (retryResult.success) {
+          const data = retryResult.data;
+          node.setOutputData(0, data);
+          node.setOutputData(1, null);
+          this.activeOutputs.set(node.id, new Set([0]));
+          node._executionResult = { retried: attempt, data };
+          this.nodeResults.set(node.id, node._executionResult);
+          this.callbacks.setStatus(node, "success");
+          // Clear error from upstream
+          this.errorNodes.delete(upstreamNodeId);
+          this.callbacks.setStatus(upstreamNode, "success");
+          upstreamNode._executionResult = data;
+          return;
+        } else {
+          lastError = { message: retryResult.error };
+        }
+      } catch (e) {
+        lastError = { message: e.message };
+      }
+    }
+
+    // All retries exhausted
+    node.setOutputData(0, null);
+    node.setOutputData(1, { error: lastError.message, retries: maxRetries });
+    this.activeOutputs.set(node.id, new Set([1]));
+    node._executionResult = { failed: true, retries: maxRetries, error: lastError.message };
+    this.nodeResults.set(node.id, node._executionResult);
+    this.callbacks.setStatus(node, "error");
+  }
+
+  /**
+   * Retry a single upstream node — re-execute its logic.
+   * Returns { success, data } or { success: false, error }.
+   */
+  async _retryUpstreamNode(upstreamNode) {
+    if (upstreamNode.properties?.module && upstreamNode.properties?.method) {
+      // Module node — call bridge
+      const params = this.callbacks.resolveInputs(upstreamNode);
+      const result = await this.callbacks.execute(
+        upstreamNode.properties.module,
+        upstreamNode.properties.method,
+        params
+      );
+      return result;
+    } else {
+      // Utility/transform node — re-run onExecute
+      if (upstreamNode.onExecute) {
+        upstreamNode.onExecute();
+      }
+      const data = upstreamNode.getOutputData ? upstreamNode.getOutputData(0) : undefined;
+      return { success: true, data };
+    }
+  }
+
+  /**
+   * Fallback: use primary input if available and no error, else use fallback.
+   */
+  _handleFallback(node) {
+    const primaryError = this._getUpstreamError(node, 0);
+    const primaryData = this._resolveControlFlowInput(node, "primary");
+    const fallbackData = this._resolveControlFlowInput(node, "fallback");
+
+    let result;
+    if (primaryError || primaryData === null || primaryData === undefined) {
+      result = fallbackData;
+      node._executionResult = { source: "fallback", data: result };
+    } else {
+      result = primaryData;
+      node._executionResult = { source: "primary", data: result };
+    }
+
+    node.setOutputData(0, result);
+    this.nodeResults.set(node.id, node._executionResult);
+    this._activateAllOutputs(node);
+    this.callbacks.setStatus(node, "success");
+  }
+
+  /**
+   * Get the upstream error for a specific input slot, if the upstream node errored.
+   */
+  _getUpstreamError(node, inputIndex) {
+    if (!node.inputs || !node.inputs[inputIndex]) return null;
+    const input = node.inputs[inputIndex];
+    if (input.link == null) return null;
+
+    const link = this.graph.links[input.link];
+    if (!link) return null;
+
+    // Handle both LiteGraph object format and serialized array format
+    const originId = link.origin_id !== undefined ? link.origin_id : link[1];
+    return this.errorNodes.get(originId) || null;
+  }
+
+  /**
+   * Get the upstream node ID for a specific input slot.
+   */
+  _getUpstreamNodeId(node, inputIndex) {
+    if (!node.inputs || !node.inputs[inputIndex]) return null;
+    const input = node.inputs[inputIndex];
+    if (input.link == null) return null;
+
+    const link = this.graph.links[input.link];
+    if (!link) return null;
+
+    // Handle both LiteGraph object format and serialized array format
+    return link.origin_id !== undefined ? link.origin_id : link[1];
   }
 
   /**

@@ -968,3 +968,194 @@ body {
   word-break: break-all;
   margin: 0;
 }
+
+/* ── Recovery Banner ──────────────────────────────────────────────────── */
+
+.recovery-banner {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  background: linear-gradient(135deg, #1a1a2e 0%, #2a1a3e 100%);
+  border-bottom: 2px solid #FF9800;
+  color: var(--text-secondary);
+  font-size: 12px;
+  z-index: 100;
+}
+
+.recovery-banner.visible {
+  display: flex;
+}
+
+.recovery-icon {
+  font-size: 16px;
+  color: #FF9800;
+}
+
+.recovery-banner strong {
+  color: var(--text-primary);
+}
+
+.recovery-banner .btn-restore,
+.recovery-banner .btn-dismiss {
+  padding: 3px 12px;
+  border: 1px solid;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.recovery-banner .btn-restore {
+  background: #FF9800;
+  border-color: #FF9800;
+  color: #000;
+}
+
+.recovery-banner .btn-restore:hover {
+  background: #FFB74D;
+}
+
+.recovery-banner .btn-dismiss {
+  background: transparent;
+  border-color: var(--border-color);
+  color: var(--text-muted);
+}
+
+.recovery-banner .btn-dismiss:hover {
+  border-color: var(--text-secondary);
+  color: var(--text-secondary);
+}
+
+/* ── Save Slots Dropdown ──────────────────────────────────────────────── */
+
+.save-slots-dropdown {
+  position: relative;
+}
+
+.save-slots-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 280px;
+  background: var(--panel-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  z-index: 200;
+  margin-top: 4px;
+  overflow: hidden;
+}
+
+.save-slots-menu.hidden {
+  display: none;
+}
+
+.save-slots-header {
+  display: flex;
+  gap: 6px;
+  padding: 8px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.save-slots-header input {
+  flex: 1;
+  background: var(--bg-dark);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 5px 8px;
+  color: var(--text-primary);
+  font-size: 12px;
+  outline: none;
+}
+
+.save-slots-header input:focus {
+  border-color: var(--accent-blue);
+}
+
+.save-slot-action {
+  background: var(--accent-blue);
+  border: none;
+  border-radius: 4px;
+  padding: 5px 12px;
+  color: #fff;
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.save-slot-action:hover {
+  filter: brightness(1.2);
+}
+
+.save-slots-list {
+  max-height: 250px;
+  overflow-y: auto;
+}
+
+.save-slots-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.save-slot-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.save-slot-row:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.save-slot-row:last-child {
+  border-bottom: none;
+}
+
+.save-slot-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.save-slot-name {
+  display: block;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.save-slot-meta {
+  display: block;
+  color: var(--text-muted);
+  font-size: 10px;
+  margin-top: 2px;
+}
+
+.save-slot-delete {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  opacity: 0;
+  transition: all 0.15s;
+}
+
+.save-slot-row:hover .save-slot-delete {
+  opacity: 1;
+}
+
+.save-slot-delete:hover {
+  color: #f44336;
+}

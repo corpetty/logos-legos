@@ -328,6 +328,11 @@ function registerControlFlowNode(def) {
       _controlFlow: def._controlFlow,
     };
 
+    // Error-catching flag (for Try/Catch, Retry, Fallback)
+    if (def._errorCatch) {
+      this.properties._errorCatch = true;
+    }
+
     // Per-type widgets and properties
     if (def._controlFlow === "switch") {
       this.addProperty("cases", "a,b,c", "string");
@@ -339,6 +344,15 @@ function registerControlFlowNode(def) {
       this.addWidget("combo", "mode", "waitAll", (v) => {
         this.properties.mode = v;
       }, { values: ["waitAll", "firstAvailable"] });
+    } else if (def._controlFlow === "retry") {
+      this.addProperty("maxRetries", 3, "number");
+      this.addWidget("number", "maxRetries", 3, (v) => {
+        this.properties.maxRetries = v;
+      }, { min: 1, max: 10, step: 1 });
+      this.addProperty("delayMs", 1000, "number");
+      this.addWidget("number", "delayMs", 1000, (v) => {
+        this.properties.delayMs = v;
+      }, { min: 0, max: 30000, step: 100 });
     }
 
     // Size based on slots + widgets
@@ -347,7 +361,8 @@ function registerControlFlowNode(def) {
       (def.outputs || []).length,
       1
     );
-    const widgetCount = def._controlFlow === "switch" || def._controlFlow === "merge" ? 1 : 0;
+    const widgetCount = def._controlFlow === "retry" ? 2 :
+                        (def._controlFlow === "switch" || def._controlFlow === "merge" ? 1 : 0);
     this.size = [220, 30 + slotCount * 26 + widgetCount * 26];
   }
 
@@ -409,6 +424,21 @@ function registerControlFlowNode(def) {
         }
       }
       this.setOutputData(0, merged);
+    } else if (cf === "try-catch") {
+      // Preview: passthrough input to success output
+      const data = this.getInputData(0);
+      this.setOutputData(0, data); // success
+      this.setOutputData(1, null); // error
+    } else if (cf === "retry") {
+      // Preview: passthrough input to result output
+      const data = this.getInputData(0);
+      this.setOutputData(0, data);  // result
+      this.setOutputData(1, null);  // failed
+    } else if (cf === "fallback") {
+      // Preview: use primary if available, else fallback
+      const primary = this.getInputData(0);
+      const fallback = this.getInputData(1);
+      this.setOutputData(0, primary != null ? primary : fallback);
     }
   };
 
@@ -416,19 +446,26 @@ function registerControlFlowNode(def) {
    * Custom drawing: amber flow indicator and control flow badge.
    */
   CFNode.prototype.onDrawForeground = function (ctx) {
-    // Draw flow type badge
+    // Draw flow type badge (ERROR for error-handling nodes)
+    const isErrorHandler = def._errorCatch;
     ctx.fillStyle = def.color;
     ctx.font = "bold 8px monospace";
     ctx.textAlign = "right";
-    ctx.fillText("FLOW", this.size[0] - 8, -6);
+    ctx.fillText(isErrorHandler ? "ERROR" : "FLOW", this.size[0] - 8, -6);
 
-    // Draw a small diamond icon to distinguish from module nodes
+    // Draw icon: shield for error handlers, diamond for standard flow
     ctx.fillStyle = def.color;
-    ctx.save();
-    ctx.translate(12, -LiteGraph.NODE_TITLE_HEIGHT / 2);
-    ctx.rotate(Math.PI / 4);
-    ctx.fillRect(-4, -4, 8, 8);
-    ctx.restore();
+    if (isErrorHandler) {
+      ctx.font = "11px sans-serif";
+      ctx.textAlign = "left";
+      ctx.fillText("\u26A0", 6, -LiteGraph.NODE_TITLE_HEIGHT / 2 + 4);
+    } else {
+      ctx.save();
+      ctx.translate(12, -LiteGraph.NODE_TITLE_HEIGHT / 2);
+      ctx.rotate(Math.PI / 4);
+      ctx.fillRect(-4, -4, 8, 8);
+      ctx.restore();
+    }
 
     // Draw execution status overlay
     drawExecutionOverlay(ctx, this);

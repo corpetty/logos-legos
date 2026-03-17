@@ -14,6 +14,14 @@
 </head>
 <body>
   <div id="app">
+    <!-- Auto-save recovery banner -->
+    <div id="recovery-banner" class="recovery-banner">
+      <span class="recovery-icon">&#9888;</span>
+      <span>Recovered unsaved workflow from <strong class="recovery-time"></strong>.</span>
+      <button class="btn-restore">Restore</button>
+      <button class="btn-dismiss">Dismiss</button>
+    </div>
+
     <!-- Toolbar -->
     <div id="toolbar">
       <div class="brand">
@@ -47,6 +55,22 @@
       <button id="btn-export" class="toolbar-btn accent" title="Export workflow">
         <span class="icon">&#8595;</span> Export
       </button>
+
+      <!-- Save slots dropdown -->
+      <div class="save-slots-dropdown">
+        <button id="btn-save-slots" class="toolbar-btn" title="Save / Load workflows">
+          <span class="icon">&#128190;</span> Saves
+        </button>
+        <div id="save-slots-menu" class="save-slots-menu hidden">
+          <div class="save-slots-header">
+            <input type="text" id="save-slot-name" placeholder="Workflow name..." autocomplete="off">
+            <button id="btn-save-slot" class="save-slot-action" title="Save current workflow">Save</button>
+          </div>
+          <div id="save-slots-list" class="save-slots-list">
+            <div class="save-slots-empty">No saved workflows</div>
+          </div>
+        </div>
+      </div>
 
       <div class="separator"></div>
 

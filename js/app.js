@@ -59,6 +59,15 @@ class LogosLegosApp {
     this.handleResize();
     window.addEventListener("resize", () => this.handleResize());
 
+    // Auto-save to localStorage
+    this._setupAutoSave();
+
+    // Check for auto-save recovery
+    this._checkAutoSaveRecovery();
+
+    // Setup save slots UI
+    this._setupSaveSlots();
+
     // Start graph execution loop (for live preview)
     this.graph.start(1000);
 
@@ -1255,6 +1264,241 @@ class LogosLegosApp {
 
     content.innerHTML = html;
     panel.classList.add("visible");
+  }
+
+  // ── Auto-Save & Recovery ────────────────────────────────────────────────
+
+  /**
+   * Setup debounced auto-save to localStorage.
+   * Saves the graph state 2 seconds after any change.
+   */
+  _setupAutoSave() {
+    let saveTimeout;
+    const debouncedSave = () => {
+      clearTimeout(saveTimeout);
+      saveTimeout = setTimeout(() => {
+        try {
+          const data = this.graph.serialize();
+          // Don't save empty graphs
+          if (!data.nodes || data.nodes.length === 0) return;
+          localStorage.setItem("logos-legos-autosave", JSON.stringify({
+            graph: data,
+            timestamp: Date.now(),
+          }));
+        } catch (e) {
+          console.warn("Auto-save failed:", e.message);
+        }
+      }, 2000);
+    };
+
+    // Hook into LiteGraph graph change events
+    const origAddNode = this.graph.add.bind(this.graph);
+    this.graph.add = (...args) => {
+      const result = origAddNode(...args);
+      debouncedSave();
+      return result;
+    };
+
+    const origRemoveNode = this.graph.remove.bind(this.graph);
+    this.graph.remove = (...args) => {
+      const result = origRemoveNode(...args);
+      debouncedSave();
+      return result;
+    };
+
+    // Also save on connection changes via the canvas
+    if (this.canvas) {
+      const origOnConnectionChange = this.canvas.onConnectionChange;
+      this.canvas.onConnectionChange = (...args) => {
+        if (origOnConnectionChange) origOnConnectionChange.apply(this.canvas, args);
+        debouncedSave();
+      };
+    }
+
+    // Save on property changes (widget edits)
+    this.graph.onNodePropertyChanged = () => debouncedSave();
+
+    this._debouncedSave = debouncedSave;
+  }
+
+  /**
+   * Check localStorage for auto-saved graph and show recovery banner.
+   */
+  _checkAutoSaveRecovery() {
+    const saved = localStorage.getItem("logos-legos-autosave");
+    if (!saved) return;
+
+    try {
+      const { graph, timestamp } = JSON.parse(saved);
+      if (!graph || !graph.nodes || graph.nodes.length === 0) {
+        localStorage.removeItem("logos-legos-autosave");
+        return;
+      }
+
+      const banner = document.getElementById("recovery-banner");
+      if (!banner) return;
+
+      banner.querySelector(".recovery-time").textContent = this._relativeTime(timestamp);
+      banner.classList.add("visible");
+
+      banner.querySelector(".btn-restore").addEventListener("click", () => {
+        this.graph.configure(graph);
+        banner.classList.remove("visible");
+        localStorage.removeItem("logos-legos-autosave");
+        this.showNotification("Workflow restored from auto-save", "success");
+      });
+
+      banner.querySelector(".btn-dismiss").addEventListener("click", () => {
+        banner.classList.remove("visible");
+        localStorage.removeItem("logos-legos-autosave");
+      });
+    } catch (e) {
+      console.warn("Recovery check failed:", e.message);
+      localStorage.removeItem("logos-legos-autosave");
+    }
+  }
+
+  // ── Named Save Slots ────────────────────────────────────────────────────
+
+  /**
+   * Setup the save-slots dropdown for named workflow persistence.
+   */
+  _setupSaveSlots() {
+    const toggleBtn = document.getElementById("btn-save-slots");
+    const menu = document.getElementById("save-slots-menu");
+    const nameInput = document.getElementById("save-slot-name");
+    const saveBtn = document.getElementById("btn-save-slot");
+
+    if (!toggleBtn || !menu) return;
+
+    // Toggle dropdown
+    toggleBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      menu.classList.toggle("hidden");
+      if (!menu.classList.contains("hidden")) {
+        this._renderSaveSlots();
+        nameInput.focus();
+      }
+    });
+
+    // Close on click outside
+    document.addEventListener("click", (e) => {
+      if (!menu.contains(e.target) && e.target !== toggleBtn) {
+        menu.classList.add("hidden");
+      }
+    });
+
+    // Save button
+    saveBtn.addEventListener("click", () => {
+      const name = nameInput.value.trim();
+      if (!name) {
+        this.showNotification("Enter a workflow name", "error");
+        return;
+      }
+      this._saveToSlot(name);
+      nameInput.value = "";
+      this._renderSaveSlots();
+    });
+
+    // Enter key in input
+    nameInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        saveBtn.click();
+      }
+    });
+  }
+
+  /**
+   * Save current graph to a named slot in localStorage.
+   */
+  _saveToSlot(name) {
+    const saves = this._getSaveSlots();
+    saves[name] = {
+      graph: this.graph.serialize(),
+      timestamp: Date.now(),
+      nodeCount: this.graph._nodes?.length || 0,
+    };
+    localStorage.setItem("logos-legos-saves", JSON.stringify(saves));
+    this.showNotification(`Saved "${name}"`, "success");
+  }
+
+  /**
+   * Load a named save slot.
+   */
+  _loadFromSlot(name) {
+    const saves = this._getSaveSlots();
+    const save = saves[name];
+    if (!save || !save.graph) {
+      this.showNotification(`Save "${name}" not found`, "error");
+      return;
+    }
+    this.graph.configure(save.graph);
+    this.showNotification(`Loaded "${name}"`, "success");
+    document.getElementById("save-slots-menu")?.classList.add("hidden");
+  }
+
+  /**
+   * Delete a named save slot.
+   */
+  _deleteSlot(name) {
+    const saves = this._getSaveSlots();
+    delete saves[name];
+    localStorage.setItem("logos-legos-saves", JSON.stringify(saves));
+    this._renderSaveSlots();
+    this.showNotification(`Deleted "${name}"`, "success");
+  }
+
+  /**
+   * Get all saved workflows from localStorage.
+   */
+  _getSaveSlots() {
+    try {
+      return JSON.parse(localStorage.getItem("logos-legos-saves") || "{}");
+    } catch {
+      return {};
+    }
+  }
+
+  /**
+   * Render the save slots list in the dropdown.
+   */
+  _renderSaveSlots() {
+    const listEl = document.getElementById("save-slots-list");
+    if (!listEl) return;
+
+    const saves = this._getSaveSlots();
+    const entries = Object.entries(saves).sort((a, b) => (b[1].timestamp || 0) - (a[1].timestamp || 0));
+
+    if (entries.length === 0) {
+      listEl.innerHTML = '<div class="save-slots-empty">No saved workflows</div>';
+      return;
+    }
+
+    listEl.innerHTML = entries.map(([name, save]) => `
+      <div class="save-slot-row">
+        <div class="save-slot-info" data-name="${this._escapeHtml(name)}">
+          <span class="save-slot-name">${this._escapeHtml(name)}</span>
+          <span class="save-slot-meta">${save.nodeCount || 0} nodes &middot; ${this._relativeTime(save.timestamp)}</span>
+        </div>
+        <button class="save-slot-delete" data-name="${this._escapeHtml(name)}" title="Delete">&times;</button>
+      </div>
+    `).join("");
+
+    // Bind click handlers
+    listEl.querySelectorAll(".save-slot-info").forEach(el => {
+      el.addEventListener("click", () => {
+        this._loadFromSlot(el.dataset.name);
+      });
+    });
+
+    listEl.querySelectorAll(".save-slot-delete").forEach(el => {
+      el.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (confirm(`Delete saved workflow "${el.dataset.name}"?`)) {
+          this._deleteSlot(el.dataset.name);
+        }
+      });
+    });
   }
 }
 

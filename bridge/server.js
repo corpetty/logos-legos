@@ -18,6 +18,7 @@
  *   POST /api/workflows/:id/undeploy - Remove a deployed workflow
  *   POST /api/workflows/:id/trigger  - Manually trigger a deployed workflow
  *   POST /api/webhooks/:id        - Webhook endpoint — executes workflow with POST body
+ *   GET  /api/scheduler           - Scheduler status (active timers and next-fire times)
  *
  * Usage:
  *   node bridge/server.js [--port 8081] [--plugins-dir PATH] [--lib-path PATH] [--mock]
@@ -27,6 +28,7 @@ const http = require("http");
 const url = require("url");
 const LogosAdapter = require("./logos-adapter");
 const WorkflowEngine = require("./workflow-engine");
+const { Scheduler } = require("./scheduler");
 
 // ── CLI Argument Parsing ─────────────────────────────────────────────────
 
@@ -143,6 +145,9 @@ async function handleGet(pathname, adapter, engine, res) {
     jsonResponse(res, { workflows: engine.listDeployed() });
   } else if (pathname === "/api/executions") {
     jsonResponse(res, { executions: engine.getExecutionLog() });
+  } else if (pathname === "/api/scheduler") {
+    const schedules = engine.scheduler ? engine.scheduler.getStatus() : [];
+    jsonResponse(res, { schedules });
   } else {
     jsonResponse(res, { error: "Not found" }, 404);
   }
@@ -263,13 +268,16 @@ async function main() {
   await adapter.init();
 
   const engine = new WorkflowEngine(adapter);
-  console.log("[bridge] Workflow engine ready");
+  const scheduler = new Scheduler(engine);
+  engine.setScheduler(scheduler);
+  console.log("[bridge] Workflow engine + scheduler ready");
 
   const server = createServer(adapter, engine, opts.port);
 
   // Graceful shutdown
   process.on("SIGINT", () => {
     console.log("\n[bridge] Shutting down...");
+    scheduler.stopAll();
     server.close();
     if (adapter.logos) {
       adapter.logos.cleanup();
@@ -278,6 +286,7 @@ async function main() {
   });
 
   process.on("SIGTERM", () => {
+    scheduler.stopAll();
     server.close();
     if (adapter.logos) {
       adapter.logos.cleanup();

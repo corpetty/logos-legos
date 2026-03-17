@@ -731,6 +731,60 @@
       "outputs": [
         { "name": "merged", "type": "object" }
       ]
+    },
+    {
+      "name": "TryCatch",
+      "displayName": "Try / Catch",
+      "category": "Flow",
+      "color": "#FF5722",
+      "_controlFlow": "try-catch",
+      "_errorCatch": true,
+      "description": "Catches errors from upstream nodes and routes to success or error branch",
+      "properties": [],
+      "inputs": [
+        { "name": "input", "type": "*" }
+      ],
+      "outputs": [
+        { "name": "success", "type": "*" },
+        { "name": "error", "type": "object" }
+      ]
+    },
+    {
+      "name": "Retry",
+      "displayName": "Retry",
+      "category": "Flow",
+      "color": "#FF5722",
+      "_controlFlow": "retry",
+      "_errorCatch": true,
+      "description": "Retries upstream execution up to N times on failure",
+      "properties": [
+        { "name": "maxRetries", "type": "number", "default": 3 },
+        { "name": "delayMs", "type": "number", "default": 1000 }
+      ],
+      "inputs": [
+        { "name": "input", "type": "*" }
+      ],
+      "outputs": [
+        { "name": "result", "type": "*" },
+        { "name": "failed", "type": "*" }
+      ]
+    },
+    {
+      "name": "Fallback",
+      "displayName": "Fallback",
+      "category": "Flow",
+      "color": "#FF5722",
+      "_controlFlow": "fallback",
+      "_errorCatch": true,
+      "description": "Uses primary input if available, otherwise falls back to secondary",
+      "properties": [],
+      "inputs": [
+        { "name": "primary", "type": "*" },
+        { "name": "fallback", "type": "*" }
+      ],
+      "outputs": [
+        { "name": "result", "type": "*" }
+      ]
     }
   ],
   "triggerNodes": [

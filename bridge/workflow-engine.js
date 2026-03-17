@@ -12,6 +12,14 @@ class WorkflowEngine {
     this.adapter = adapter;
     this.deployedWorkflows = new Map(); // workflowId → { graphData, triggers, name, deployedAt }
     this.executionLog = [];             // Recent execution records (last 100)
+    this.scheduler = null;              // Set via setScheduler()
+  }
+
+  /**
+   * Attach a Scheduler instance for timer-based trigger execution.
+   */
+  setScheduler(scheduler) {
+    this.scheduler = scheduler;
   }
 
   /**
@@ -53,6 +61,15 @@ class WorkflowEngine {
 
     console.log(`[engine] Deployed workflow "${workflowId}" with ${triggers.length} trigger(s): ${triggers.map(t => t.type).join(", ")}`);
 
+    // Auto-schedule timer triggers
+    if (this.scheduler) {
+      for (const trigger of triggers) {
+        if (trigger.type === "timer") {
+          this.scheduler.schedule(workflowId, trigger.config);
+        }
+      }
+    }
+
     return {
       success: true,
       workflowId,
@@ -68,6 +85,10 @@ class WorkflowEngine {
   undeploy(workflowId) {
     if (!this.deployedWorkflows.has(workflowId)) {
       return { success: false, error: "Workflow not found" };
+    }
+    // Unschedule any timers for this workflow
+    if (this.scheduler) {
+      this.scheduler.unschedule(workflowId);
     }
     this.deployedWorkflows.delete(workflowId);
     console.log(`[engine] Undeployed workflow "${workflowId}"`);
