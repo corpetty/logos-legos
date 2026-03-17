@@ -6,6 +6,7 @@ class ModuleRegistry {
   constructor() {
     this.modules = [];
     this.utilityNodes = [];
+    this.controlFlowNodes = [];
     this.dataTypes = {};
     this.loaded = false;
     this.source = "static"; // "static" | "bridge"
@@ -19,6 +20,7 @@ class ModuleRegistry {
     const data = await response.json();
     this.modules = data.modules || [];
     this.utilityNodes = data.utilityNodes || [];
+    this.controlFlowNodes = data.controlFlowNodes || [];
     this.dataTypes = data.dataTypes || {};
     this.loaded = true;
     this.source = "static";
@@ -129,6 +131,10 @@ class ModuleRegistry {
       cats.get(cat).push(mod);
     }
     return cats;
+  }
+
+  getControlFlowNodes() {
+    return this.controlFlowNodes;
   }
 
   getTypeColor(typeName) {

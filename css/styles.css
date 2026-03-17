@@ -373,6 +373,21 @@ body {
   padding-left: 24px;
 }
 
+.flow-item {
+  margin-left: 0;
+  padding-left: 12px;
+  border-left: 2px solid #FFC107;
+}
+
+.flow-item:hover {
+  border-left-color: #FFD54F;
+}
+
+.flow-diamond {
+  font-size: 10px;
+  margin-right: 4px;
+}
+
 /* ---- Canvas ---- */
 
 #canvas-container {

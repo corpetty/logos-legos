@@ -91,6 +91,7 @@ class WorkflowManager {
         type: node.type,
         module: node.properties?.module || null,
         method: node.properties?.method || null,
+        _controlFlow: node.properties?._controlFlow || null,
       };
     }).filter(Boolean);
   }
@@ -119,6 +120,20 @@ class WorkflowManager {
           warnings.push(
             `${node.title}: input "${input.name}" (${input.type}) is not connected`
           );
+        }
+      }
+    }
+
+    // Check for control flow nodes with unconnected outputs
+    for (const node of nodes) {
+      if (node.properties?._controlFlow && node.outputs) {
+        for (let i = 0; i < node.outputs.length; i++) {
+          const output = node.outputs[i];
+          if (!output.links || output.links.length === 0) {
+            warnings.push(
+              `${node.title}: output "${output.name}" has no connections (branch will be unused)`
+            );
+          }
         }
       }
     }

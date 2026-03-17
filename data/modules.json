@@ -559,6 +559,82 @@
       ]
     }
   ],
+  "controlFlowNodes": [
+    {
+      "name": "IfElse",
+      "displayName": "If / Else",
+      "category": "Flow",
+      "color": "#FFC107",
+      "_controlFlow": "if-else",
+      "description": "Branch execution based on a boolean condition",
+      "properties": [],
+      "inputs": [
+        { "name": "condition", "type": "boolean" },
+        { "name": "value", "type": "*" }
+      ],
+      "outputs": [
+        { "name": "true", "type": "*" },
+        { "name": "false", "type": "*" }
+      ]
+    },
+    {
+      "name": "Switch",
+      "displayName": "Switch",
+      "category": "Flow",
+      "color": "#FFC107",
+      "_controlFlow": "switch",
+      "description": "Multi-way branch based on a string key",
+      "properties": [
+        { "name": "cases", "type": "string", "default": "a,b,c" }
+      ],
+      "inputs": [
+        { "name": "value", "type": "*" },
+        { "name": "key", "type": "string" }
+      ],
+      "outputs": [
+        { "name": "case_1", "type": "*" },
+        { "name": "case_2", "type": "*" },
+        { "name": "case_3", "type": "*" },
+        { "name": "default", "type": "*" }
+      ]
+    },
+    {
+      "name": "ForEach",
+      "displayName": "For Each",
+      "category": "Flow",
+      "color": "#FFC107",
+      "_controlFlow": "foreach",
+      "description": "Iterate over each item in an array",
+      "properties": [],
+      "inputs": [
+        { "name": "array", "type": "object" }
+      ],
+      "outputs": [
+        { "name": "item", "type": "*" },
+        { "name": "index", "type": "number" },
+        { "name": "done", "type": "object" }
+      ]
+    },
+    {
+      "name": "Merge",
+      "displayName": "Merge",
+      "category": "Flow",
+      "color": "#FFC107",
+      "_controlFlow": "merge",
+      "description": "Combine multiple branches into one",
+      "properties": [
+        { "name": "mode", "type": "string", "default": "waitAll" }
+      ],
+      "inputs": [
+        { "name": "input_1", "type": "*" },
+        { "name": "input_2", "type": "*" },
+        { "name": "input_3", "type": "*" }
+      ],
+      "outputs": [
+        { "name": "merged", "type": "object" }
+      ]
+    }
+  ],
   "dataTypes": {
     "string":             { "color": "#8BC34A", "label": "String" },
     "number":             { "color": "#FF9800", "label": "Number" },

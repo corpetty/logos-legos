@@ -201,6 +201,7 @@ class LogosLegosApp {
 
   /**
    * Execute the current workflow via the bridge.
+   * Uses DAGExecutor for branch-aware execution with control flow support.
    */
   async runWorkflow() {
     if (this.running) {
@@ -215,10 +216,14 @@ class LogosLegosApp {
       return;
     }
 
-    const pipeline = this.workflow.extractPipeline();
-    const moduleSteps = pipeline.filter((s) => s.module && s.method);
-    if (moduleSteps.length === 0) {
-      this.showNotification("No module nodes to execute", "warning");
+    // Check there are actually nodes to execute
+    const nodes = this.graph._nodes || [];
+    const hasExecutable = nodes.some(n =>
+      (n.properties?.module && n.properties?.method) ||
+      n.properties?._controlFlow
+    );
+    if (!hasExecutable) {
+      this.showNotification("No module or control flow nodes to execute", "warning");
       return;
     }
 
@@ -226,79 +231,50 @@ class LogosLegosApp {
     this.updateRunButton(true);
     this.clearNodeResults();
 
-    if (this.bridge.connected) {
-      await this.runViaBridge(moduleSteps);
-    } else {
-      await this.runMockLocal(moduleSteps);
+    const useBridge = this.bridge.connected;
+    const app = this;
+
+    // Create DAG executor with callbacks
+    const executor = new DAGExecutor(this.graph, {
+      execute: async (module, method, params) => {
+        if (useBridge) {
+          return await app.bridge.execute(module, method, params);
+        } else {
+          // Mock execution
+          await new Promise(r => setTimeout(r, 300 + Math.random() * 400));
+          const ts = Math.floor(Date.now() / 1000);
+          return {
+            success: true,
+            data: {
+              status: "ok",
+              call: `logos.${(module || "").replace("logos-", "").replace("-module", "")}.${method}()`,
+              timestamp: ts,
+              mock: true,
+            },
+          };
+        }
+      },
+      setStatus: (node, status) => app.setNodeStatus(node, status),
+      setResult: (node, data) => app.setNodeResult(node, data),
+      resolveInputs: (node) => app.gatherNodeInputs(node),
+    });
+
+    const modeLabel = useBridge ? "via bridge" : "locally (mock)";
+    this.showNotification(`Executing workflow ${modeLabel}...`, "info");
+
+    try {
+      const result = await executor.run();
+      const msg = result.success
+        ? `Workflow complete: ${result.steps} steps executed` +
+          (result.skipped > 0 ? `, ${result.skipped} skipped` : "")
+        : `Workflow finished with ${result.errors} error(s)`;
+      this.showNotification(msg, result.success ? "success" : "error");
+    } catch (e) {
+      this.showNotification(`Workflow error: ${e.message}`, "error");
     }
 
     this.running = false;
     this.updateRunButton(false);
-  }
-
-  /**
-   * Execute workflow steps via bridge server.
-   */
-  async runViaBridge(steps) {
-    this.showNotification(`Executing ${steps.length} steps via bridge...`, "info");
-
-    for (const step of steps) {
-      const node = this.graph.getNodeById(step.nodeId);
-      if (node) this.setNodeStatus(node, "running");
-
-      try {
-        // Gather input values from connected nodes
-        const params = this.gatherNodeInputs(node);
-        const result = await this.bridge.execute(step.module, step.method, params);
-
-        if (node) {
-          if (result.success) {
-            this.setNodeStatus(node, "success");
-            this.setNodeResult(node, result.data);
-          } else {
-            this.setNodeStatus(node, "error");
-            this.setNodeResult(node, { error: result.error });
-          }
-        }
-      } catch (e) {
-        if (node) {
-          this.setNodeStatus(node, "error");
-          this.setNodeResult(node, { error: e.message });
-        }
-      }
-    }
-
-    this.showNotification("Workflow execution complete", "success");
-  }
-
-  /**
-   * Run a mock execution locally (when bridge is not connected).
-   */
-  async runMockLocal(steps) {
-    this.showNotification(`Mock executing ${steps.length} steps locally...`, "info");
-    const ts = Math.floor(Date.now() / 1000);
-
-    for (const step of steps) {
-      const node = this.graph.getNodeById(step.nodeId);
-      if (node) this.setNodeStatus(node, "running");
-
-      // Simulate execution delay
-      await new Promise((r) => setTimeout(r, 300 + Math.random() * 400));
-
-      const mockData = {
-        status: "ok",
-        call: `logos.${(step.module || "").replace("logos-", "").replace("-module", "")}.${step.method}()`,
-        timestamp: ts,
-        mock: true,
-      };
-
-      if (node) {
-        this.setNodeStatus(node, "success");
-        this.setNodeResult(node, mockData);
-      }
-    }
-
-    this.showNotification("Mock execution complete", "success");
   }
 
   /**
@@ -564,6 +540,61 @@ class LogosLegosApp {
 
       utilSection.appendChild(utilList);
       sidebar.appendChild(utilSection);
+    }
+
+    // Control Flow nodes section
+    if (this.registry.controlFlowNodes.length > 0) {
+      const flowSection = document.createElement("div");
+      flowSection.className = "sidebar-category";
+
+      const flowHeader = document.createElement("div");
+      flowHeader.className = "category-header";
+      flowHeader.innerHTML = `
+        <span class="category-toggle">&#9660;</span>
+        <span class="category-name">Flow</span>
+        <span class="category-count">${this.registry.controlFlowNodes.length}</span>
+      `;
+      flowHeader.addEventListener("click", () => {
+        flowSection.classList.toggle("collapsed");
+        const toggle = flowHeader.querySelector(".category-toggle");
+        toggle.innerHTML = flowSection.classList.contains("collapsed")
+          ? "&#9654;"
+          : "&#9660;";
+      });
+      flowSection.appendChild(flowHeader);
+
+      const flowList = document.createElement("div");
+      flowList.className = "module-list";
+
+      for (const cfNode of this.registry.controlFlowNodes) {
+        const item = document.createElement("div");
+        item.className = "method-item flow-item";
+        item.draggable = true;
+        item.title = cfNode.description;
+        item.innerHTML = `
+          <span class="flow-diamond" style="color:${cfNode.color}">&#9670;</span>
+          <span class="method-name">${cfNode.displayName}</span>
+          <span class="method-io">${(cfNode.inputs || []).length}&#8594;${(cfNode.outputs || []).length}</span>
+        `;
+
+        item.addEventListener("dragstart", (e) => {
+          e.dataTransfer.setData(
+            "text/plain",
+            JSON.stringify({
+              type: "flow",
+              nodeType: `${cfNode.category}/${cfNode.name}`,
+            })
+          );
+        });
+        item.addEventListener("dblclick", () => {
+          this.addNodeAtCenter(`${cfNode.category}/${cfNode.name}`);
+        });
+
+        flowList.appendChild(item);
+      }
+
+      flowSection.appendChild(flowList);
+      sidebar.appendChild(flowSection);
     }
 
     // Search filter

@@ -38,6 +38,9 @@ function registerModuleNodes(registry) {
   for (const util of registry.utilityNodes) {
     registerUtilityNode(util);
   }
+  for (const cfNode of registry.getControlFlowNodes()) {
+    registerControlFlowNode(cfNode);
+  }
 }
 
 /**
@@ -218,6 +221,147 @@ function registerUtilityNode(util) {
   };
 
   LiteGraph.registerNodeType(path, UtilNode);
+}
+
+/**
+ * Register a control flow node (If/Else, Switch, ForEach, Merge).
+ * These nodes route data along specific output branches based on logic.
+ * The DAG executor reads _controlFlow and _activeOutputs to decide which
+ * downstream branches to activate.
+ */
+function registerControlFlowNode(def) {
+  const path = `${def.category}/${def.name}`;
+
+  function CFNode() {
+    // Add inputs
+    for (const input of def.inputs || []) {
+      this.addInput(input.name, input.type);
+    }
+    // Add outputs
+    for (const output of def.outputs || []) {
+      this.addOutput(output.name, output.type);
+    }
+
+    // Control flow metadata
+    this.properties = {
+      _controlFlow: def._controlFlow,
+    };
+
+    // Per-type widgets and properties
+    if (def._controlFlow === "switch") {
+      this.addProperty("cases", "a,b,c", "string");
+      this.addWidget("text", "cases", "a,b,c", (v) => {
+        this.properties.cases = v;
+      });
+    } else if (def._controlFlow === "merge") {
+      this.addProperty("mode", "waitAll", "string");
+      this.addWidget("combo", "mode", "waitAll", (v) => {
+        this.properties.mode = v;
+      }, { values: ["waitAll", "firstAvailable"] });
+    }
+
+    // Size based on slots + widgets
+    const slotCount = Math.max(
+      (def.inputs || []).length,
+      (def.outputs || []).length,
+      1
+    );
+    const widgetCount = def._controlFlow === "switch" || def._controlFlow === "merge" ? 1 : 0;
+    this.size = [220, 30 + slotCount * 26 + widgetCount * 26];
+  }
+
+  CFNode.title = def.displayName;
+  CFNode.desc = def.description;
+
+  // Amber color scheme for control flow
+  CFNode.prototype.color = darkenColor(def.color, 0.3);
+  CFNode.prototype.bgcolor = darkenColor(def.color, 0.6);
+
+  /**
+   * onExecute is called by LiteGraph's graph.step() for live preview.
+   * The real branching logic lives in DAGExecutor, but we use onExecute
+   * for simple data passthrough so the graph can be previewed.
+   */
+  CFNode.prototype.onExecute = function () {
+    const cf = this.properties._controlFlow;
+
+    if (cf === "if-else") {
+      const condition = this.getInputData(0);
+      const value = this.getInputData(1);
+      if (condition) {
+        this.setOutputData(0, value); // true branch
+        this.setOutputData(1, null);
+      } else {
+        this.setOutputData(0, null);
+        this.setOutputData(1, value); // false branch
+      }
+    } else if (cf === "switch") {
+      const value = this.getInputData(0);
+      const key = this.getInputData(1);
+      const cases = (this.properties.cases || "").split(",").map(s => s.trim());
+      // Reset all outputs
+      for (let i = 0; i < this.outputs.length; i++) {
+        this.setOutputData(i, null);
+      }
+      const matchIndex = cases.indexOf(String(key));
+      if (matchIndex >= 0 && matchIndex < this.outputs.length - 1) {
+        this.setOutputData(matchIndex, value);
+      } else {
+        // default output (last slot)
+        this.setOutputData(this.outputs.length - 1, value);
+      }
+    } else if (cf === "foreach") {
+      const arr = this.getInputData(0);
+      if (Array.isArray(arr) && arr.length > 0) {
+        // In preview mode, just emit the first item
+        this.setOutputData(0, arr[0]);   // item
+        this.setOutputData(1, 0);         // index
+        this.setOutputData(2, arr);       // done (full array)
+      }
+    } else if (cf === "merge") {
+      // Collect all non-null inputs into a merged object
+      const merged = {};
+      for (let i = 0; i < this.inputs.length; i++) {
+        const data = this.getInputData(i);
+        if (data !== null && data !== undefined) {
+          merged[this.inputs[i].name] = data;
+        }
+      }
+      this.setOutputData(0, merged);
+    }
+  };
+
+  /**
+   * Custom drawing: amber flow indicator and control flow badge.
+   */
+  CFNode.prototype.onDrawForeground = function (ctx) {
+    // Draw flow type badge
+    ctx.fillStyle = def.color;
+    ctx.font = "bold 8px monospace";
+    ctx.textAlign = "right";
+    ctx.fillText("FLOW", this.size[0] - 8, -6);
+
+    // Draw a small diamond icon to distinguish from module nodes
+    ctx.fillStyle = def.color;
+    ctx.save();
+    ctx.translate(12, -LiteGraph.NODE_TITLE_HEIGHT / 2);
+    ctx.rotate(Math.PI / 4);
+    ctx.fillRect(-4, -4, 8, 8);
+    ctx.restore();
+
+    // Draw execution status overlay
+    drawExecutionOverlay(ctx, this);
+  };
+
+  CFNode.prototype.onDrawBackground = function (ctx) {
+    drawStatusBorder(ctx, this);
+  };
+
+  CFNode.prototype.getSlotColor = function (slot) {
+    return getSlotColor(slot.type);
+  };
+
+  LiteGraph.registerNodeType(path, CFNode);
 }
 
 // ── Execution Visualization ──────────────────────────────────────────────
