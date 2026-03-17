@@ -405,14 +405,21 @@ The adapter resolves paths relative to `__dirname` (the bridge/ directory), trav
 
 ## Build System
 
-Logos Core uses [Nix flakes](https://nixos.org/manual/nix/stable/command-ref/new-cli/nix3-flake.html) exclusively. Key commands:
+Logos Core uses [Nix flakes](https://nixos.org/manual/nix/stable/command-ref/new-cli/nix3-flake.html) exclusively. The workspace flake does not have a default package — you must specify a build target.
 
 ```bash
-# Build everything
-cd logos-workspace && nix build
+cd logos-workspace
 
-# Build a specific module
-nix build .#test_basic_module
+# Build logos-liblogos (logoscore, logos_host, liblogos_core.so, capability_module)
+nix build .#logos-liblogos
+
+# Build the module inspector (lm binary)
+nix build .#logos-module
+
+# Build a specific module (e.g., test modules, chat, wallet, etc.)
+nix build .#logos-test-modules
+nix build .#logos-chat-module
+nix build .#logos-wallet-module
 
 # Enter dev shell
 nix develop

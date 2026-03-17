@@ -101,7 +101,7 @@ Built on [LiteGraph.js](https://github.com/jagenjo/litegraph.js), the same node-
 ### 1. Build Logos Core
 
 ```bash
-# Clone and build the workspace
+# Clone the workspace
 cd ~/Github/logos-co
 git clone https://github.com/logos-co/logos-workspace.git
 cd logos-workspace
@@ -109,14 +109,25 @@ cd logos-workspace
 # Configure git for HTTPS (submodules use SSH URLs)
 git config --global url."https://github.com/".insteadOf "git@github.com:"
 
-# Initialize submodules and build
+# Initialize submodules
 git submodule update --init --recursive
-nix build
+
+# Build logos-liblogos (produces logoscore, logos_host, liblogos_core.so)
+# Note: there is no default package — you must specify a target
+nix build .#logos-liblogos
 
 # Verify the build produced binaries
-ls result/bin/    # logoscore, logos_host, lm
+ls result/bin/    # logoscore, logos_host
 ls result/lib/    # liblogos_core.so
+ls result/modules/ # capability_module
+
+# Optionally build the module inspector (lm) from logos-module
+nix build .#logos-module
+# lm binary will be in the Nix store, e.g.:
+# /nix/store/...-logos-module-0.1.0/bin/lm
 ```
+
+> **Available build targets**: The workspace exposes individual packages, not a default. Use `nix build .#<name>` where `<name>` is one of: `logos-liblogos`, `logos-module`, `logos-cpp-sdk`, `logos-app-poc`, `logos-chat-module`, `logos-wallet-module`, `logos-storage-module`, `logos-accounts-module`, `logos-irc-module`, `logos-package-manager-module`, `logos-js-sdk`, etc.
 
 ### 2. Set Up Module Plugins
 
