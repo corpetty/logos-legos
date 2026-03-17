@@ -557,6 +557,104 @@
       "outputs": [
         { "name": "result", "type": "string" }
       ]
+    },
+    {
+      "name": "ArrayMap",
+      "displayName": "Array Map",
+      "category": "Transform",
+      "color": "#26C6DA",
+      "description": "Apply an expression to each item in an array",
+      "properties": [
+        { "name": "expression", "type": "string", "default": "item" }
+      ],
+      "inputs": [
+        { "name": "array", "type": "*" }
+      ],
+      "outputs": [
+        { "name": "result", "type": "*" }
+      ]
+    },
+    {
+      "name": "ArrayFilter",
+      "displayName": "Array Filter",
+      "category": "Transform",
+      "color": "#26C6DA",
+      "description": "Filter array items by a condition expression",
+      "properties": [
+        { "name": "condition", "type": "string", "default": "item != null" }
+      ],
+      "inputs": [
+        { "name": "array", "type": "*" }
+      ],
+      "outputs": [
+        { "name": "result", "type": "*" },
+        { "name": "rejected", "type": "*" }
+      ]
+    },
+    {
+      "name": "ObjectPick",
+      "displayName": "Object Pick",
+      "category": "Transform",
+      "color": "#26C6DA",
+      "description": "Extract specific keys from an object",
+      "properties": [
+        { "name": "keys", "type": "string", "default": "id,name" }
+      ],
+      "inputs": [
+        { "name": "object", "type": "*" }
+      ],
+      "outputs": [
+        { "name": "result", "type": "object" }
+      ]
+    },
+    {
+      "name": "ObjectMerge",
+      "displayName": "Object Merge",
+      "category": "Transform",
+      "color": "#26C6DA",
+      "description": "Deep merge two objects (b overrides a)",
+      "inputs": [
+        { "name": "object_a", "type": "*" },
+        { "name": "object_b", "type": "*" }
+      ],
+      "outputs": [
+        { "name": "merged", "type": "object" }
+      ]
+    },
+    {
+      "name": "CodeExpression",
+      "displayName": "Code / Expression",
+      "category": "Transform",
+      "color": "#26C6DA",
+      "description": "Evaluate a JavaScript expression with sandboxed scope",
+      "properties": [
+        { "name": "code", "type": "string", "default": "return data;" }
+      ],
+      "inputs": [
+        { "name": "data", "type": "*" }
+      ],
+      "outputs": [
+        { "name": "result", "type": "*" }
+      ]
+    },
+    {
+      "name": "HttpRequest",
+      "displayName": "HTTP Request",
+      "category": "Transform",
+      "color": "#FF7043",
+      "description": "Make an HTTP request to an external URL",
+      "properties": [
+        { "name": "method", "type": "string", "default": "GET" },
+        { "name": "headers", "type": "string", "default": "{}" }
+      ],
+      "inputs": [
+        { "name": "url", "type": "string" },
+        { "name": "body", "type": "*" }
+      ],
+      "outputs": [
+        { "name": "response", "type": "*" },
+        { "name": "status", "type": "number" }
+      ]
     }
   ],
   "controlFlowNodes": [
@@ -632,6 +730,56 @@
       ],
       "outputs": [
         { "name": "merged", "type": "object" }
+      ]
+    }
+  ],
+  "triggerNodes": [
+    {
+      "name": "Webhook",
+      "displayName": "Webhook",
+      "category": "Trigger",
+      "color": "#E040FB",
+      "_trigger": "webhook",
+      "description": "Receives data from an HTTP POST webhook",
+      "properties": [
+        { "name": "path", "type": "string", "default": "/my-hook" }
+      ],
+      "inputs": [],
+      "outputs": [
+        { "name": "payload", "type": "*" },
+        { "name": "headers", "type": "object" }
+      ]
+    },
+    {
+      "name": "Timer",
+      "displayName": "Timer / Cron",
+      "category": "Trigger",
+      "color": "#E040FB",
+      "_trigger": "timer",
+      "description": "Fires on a schedule (interval or cron expression)",
+      "properties": [
+        { "name": "mode", "type": "string", "default": "interval" },
+        { "name": "intervalMs", "type": "number", "default": 60000 },
+        { "name": "cron", "type": "string", "default": "* * * * *" }
+      ],
+      "inputs": [],
+      "outputs": [
+        { "name": "tick", "type": "object" }
+      ]
+    },
+    {
+      "name": "ManualTrigger",
+      "displayName": "Manual Trigger",
+      "category": "Trigger",
+      "color": "#E040FB",
+      "_trigger": "manual",
+      "description": "Manually fires the workflow with optional static data",
+      "properties": [
+        { "name": "data", "type": "string", "default": "{}" }
+      ],
+      "inputs": [],
+      "outputs": [
+        { "name": "data", "type": "*" }
       ]
     }
   ],

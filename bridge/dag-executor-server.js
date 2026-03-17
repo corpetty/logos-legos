@@ -1,41 +1,41 @@
+function _deepMerge(target, source) {
+  const result = { ...target };
+  for (const key in source) {
+    if (source[key] && typeof source[key] === "object" && !Array.isArray(source[key]) &&
+        result[key] && typeof result[key] === "object" && !Array.isArray(result[key])) {
+      result[key] = _deepMerge(result[key], source[key]);
+    } else {
+      result[key] = source[key];
+    }
+  }
+  return result;
+}
+
 /**
- * DAG Executor - Branch-aware directed acyclic graph executor.
+ * DAG Executor (Server-Side) - Branch-aware directed acyclic graph executor.
  *
- * Replaces the sequential for-loop in app.js with a proper DAG executor
- * that understands control flow nodes (If/Else, Switch, ForEach, Merge).
+ * This is a server-compatible copy of js/dag-executor.js with:
+ * 1. module.exports for Node.js require()
+ * 2. Enhanced _handleUtility() that explicitly pushes properties.value to outputs
+ *    (since ServerNode.onExecute() is a no-op — there's no LiteGraph on the server)
  *
  * Key concept: "active outputs". When a node executes, it decides which of
  * its output slots are "active" — meaning downstream nodes connected to those
  * slots should run. Module and utility nodes activate ALL outputs. Control
  * flow nodes selectively activate outputs based on their logic.
- *
- * A downstream node only becomes ready when ALL of its incoming connections
- * come from active outputs of already-executed nodes.
  */
 class DAGExecutor {
-  /**
-   * @param {LGraph} graph - The LiteGraph graph instance
-   * @param {object} callbacks - Execution callbacks:
-   *   - execute(module, method, params): Promise<result> — run a module method via bridge
-   *   - setStatus(node, status): void — set visual status on a node
-   *   - setResult(node, data): void — store result + push to outputs
-   *   - resolveInputs(node): object — gather input parameter values
-   *   - onStepComplete(node, result): void — called after each step (optional)
-   */
   constructor(graph, callbacks) {
     this.graph = graph;
     this.callbacks = callbacks;
 
     // Execution state
-    this.executed = new Set();          // nodeIds that have finished executing
-    this.activeOutputs = new Map();     // nodeId → Set<outputSlotIndex> that fired
-    this.nodeResults = new Map();       // nodeId → execution result data
-    this.skipped = new Set();           // nodeIds skipped due to inactive branch
+    this.executed = new Set();
+    this.activeOutputs = new Map();
+    this.nodeResults = new Map();
+    this.skipped = new Set();
   }
 
-  /**
-   * Main entry point — execute the entire graph.
-   */
   async run() {
     const { order, adj, reverseAdj } = this._buildGraph();
 
@@ -48,16 +48,9 @@ class DAGExecutor {
       const node = this.graph.getNodeById(nodeId);
       if (!node) continue;
 
-      // Check if this node should be skipped (inactive branch)
       if (!this._isNodeActive(nodeId, reverseAdj)) {
         this.skipped.add(nodeId);
         continue;
-      }
-
-      // Check if this is a merge node waiting for branches
-      if (node.properties?._controlFlow === "merge") {
-        // Merge is active if at least one active input arrives
-        // (handled by _isNodeActive above)
       }
 
       try {
@@ -67,7 +60,6 @@ class DAGExecutor {
         errorCount++;
         this.callbacks.setStatus(node, "error");
         this.callbacks.setResult(node, { error: e.message });
-        // Deactivate all outputs on error
         this.activeOutputs.set(nodeId, new Set());
         this.executed.add(nodeId);
       }
@@ -81,20 +73,11 @@ class DAGExecutor {
     };
   }
 
-  /**
-   * Build adjacency lists and topological order from the LiteGraph graph.
-   * Returns { order, adj, reverseAdj, edgesByOutput }
-   *
-   * adj: nodeId → [{ targetId, outputSlot, inputSlot }]
-   * reverseAdj: nodeId → [{ sourceId, outputSlot, inputSlot }]
-   */
   _buildGraph() {
     const nodes = this.graph._nodes || [];
     const links = this.graph.links || {};
 
-    // Adjacency: which nodes does each node feed into (with slot info)
     const adj = new Map();
-    // Reverse adjacency: which nodes feed into each node
     const reverseAdj = new Map();
     const inDegree = new Map();
 
@@ -123,7 +106,6 @@ class DAGExecutor {
       inDegree.set(targetId, (inDegree.get(targetId) || 0) + 1);
     }
 
-    // Kahn's algorithm for topological sort
     const queue = [];
     for (const [id, deg] of inDegree) {
       if (deg === 0) queue.push(id);
@@ -142,28 +124,14 @@ class DAGExecutor {
     return { order, adj, reverseAdj };
   }
 
-  /**
-   * Determine if a node should execute based on branch activation.
-   *
-   * Rules:
-   * - Nodes with NO incoming connections are always active (root nodes)
-   * - A node is active if ALL of its incoming connections come from
-   *   active output slots of already-executed upstream nodes
-   * - If ANY incoming connection comes from a skipped or inactive-output
-   *   upstream, the node is inactive (skipped)
-   * - Special case: Merge nodes are active if at least ONE input is active
-   */
   _isNodeActive(nodeId, reverseAdj) {
     const incoming = reverseAdj.get(nodeId) || [];
-
-    // Root nodes (no inputs connected) are always active
     if (incoming.length === 0) return true;
 
     const node = this.graph.getNodeById(nodeId);
     const isMerge = node?.properties?._controlFlow === "merge";
 
     if (isMerge) {
-      // Merge: active if at least one incoming branch is active
       for (const { sourceId, outputSlot } of incoming) {
         if (this.skipped.has(sourceId)) continue;
         if (!this.executed.has(sourceId)) continue;
@@ -173,16 +141,9 @@ class DAGExecutor {
       return false;
     }
 
-    // Normal nodes: all incoming must be from active outputs
     for (const { sourceId, outputSlot } of incoming) {
-      // If upstream was skipped, we're also skipped
       if (this.skipped.has(sourceId)) return false;
-
-      // If upstream hasn't run yet, something is wrong with topo order
-      // (shouldn't happen with correct Kahn's)
       if (!this.executed.has(sourceId)) return false;
-
-      // Check if the specific output slot that feeds us is active
       const activeSlots = this.activeOutputs.get(sourceId);
       if (!activeSlots || !activeSlots.has(outputSlot)) return false;
     }
@@ -190,17 +151,12 @@ class DAGExecutor {
     return true;
   }
 
-  /**
-   * Execute a single node, dispatching to the appropriate handler.
-   */
   async _executeNode(node, adj) {
     const trigger = node.properties?._trigger;
     const controlFlow = node.properties?._controlFlow;
 
     if (trigger) {
-      // Trigger nodes are root nodes whose output data is pre-injected
-      // (by webhook handler, timer, or manual trigger on the server side).
-      // In browser mode, they act as passthrough with whatever data exists.
+      // Trigger nodes have pre-injected output data from webhook/timer/manual
       this.callbacks.setStatus(node, "success");
       const data = node.getOutputData ? node.getOutputData(0) : {};
       this.callbacks.setResult(node, data || {});
@@ -210,16 +166,12 @@ class DAGExecutor {
     } else if (node.properties?.module && node.properties?.method) {
       await this._handleModule(node);
     } else {
-      // Utility node — just resolve its value (async for HTTP Request etc.)
       await this._handleUtility(node);
     }
 
     this.executed.add(node.id);
   }
 
-  /**
-   * Handle a module method node — execute via bridge.
-   */
   async _handleModule(node) {
     this.callbacks.setStatus(node, "running");
 
@@ -234,12 +186,10 @@ class DAGExecutor {
       this.callbacks.setStatus(node, "success");
       this.callbacks.setResult(node, result.data);
       this.nodeResults.set(node.id, result.data);
-      // Module nodes activate ALL outputs
       this._activateAllOutputs(node);
     } else {
       this.callbacks.setStatus(node, "error");
       this.callbacks.setResult(node, { error: result.error });
-      // Error: deactivate all outputs (stop downstream execution)
       this.activeOutputs.set(node.id, new Set());
     }
 
@@ -250,91 +200,173 @@ class DAGExecutor {
 
   /**
    * Handle a utility node — resolve value from properties.
-   * Async because some utility nodes (e.g., HTTP Request) need async execution.
+   * SERVER-SIDE ENHANCED: Explicitly pushes properties.value to output slots
+   * since ServerNode.onExecute() is a no-op (no LiteGraph on the server).
+   * Also handles Transform nodes (ArrayMap, ArrayFilter, etc.).
    */
   async _handleUtility(node) {
-    // HTTP Request needs special async handling in the browser
-    if (node.type === "Transform/HttpRequest") {
-      await this._handleHttpRequestBrowser(node);
-      return;
+    const nodeType = node.type;
+
+    // ── Transform nodes ──
+    if (nodeType === "Transform/ArrayMap") {
+      const arr = node.getInputData(0);
+      const expr = node.properties?.expression || "item";
+      if (Array.isArray(arr)) {
+        try {
+          const fn = new Function("item", "index", `return (${expr});`);
+          const result = arr.map((item, index) => fn(item, index));
+          node.setOutputData(0, result);
+          this.callbacks.setResult(node, result);
+        } catch (e) {
+          node.setOutputData(0, { error: e.message });
+          this.callbacks.setResult(node, { error: e.message });
+        }
+      } else {
+        node.setOutputData(0, []);
+        this.callbacks.setResult(node, []);
+      }
+
+    } else if (nodeType === "Transform/ArrayFilter") {
+      const arr = node.getInputData(0);
+      const cond = node.properties?.condition || "true";
+      if (Array.isArray(arr)) {
+        try {
+          const fn = new Function("item", "index", `return !!(${cond});`);
+          const passed = [];
+          const rejected = [];
+          arr.forEach((item, index) => {
+            if (fn(item, index)) passed.push(item);
+            else rejected.push(item);
+          });
+          node.setOutputData(0, passed);
+          node.setOutputData(1, rejected);
+          this.callbacks.setResult(node, { passed, rejected });
+        } catch (e) {
+          node.setOutputData(0, []);
+          node.setOutputData(1, []);
+          this.callbacks.setResult(node, { error: e.message });
+        }
+      } else {
+        node.setOutputData(0, []);
+        node.setOutputData(1, []);
+        this.callbacks.setResult(node, []);
+      }
+
+    } else if (nodeType === "Transform/ObjectPick") {
+      const obj = node.getInputData(0);
+      const keys = (node.properties?.keys || "").split(",").map(k => k.trim()).filter(Boolean);
+      if (obj && typeof obj === "object") {
+        const picked = {};
+        for (const k of keys) {
+          if (k in obj) picked[k] = obj[k];
+        }
+        node.setOutputData(0, picked);
+        this.callbacks.setResult(node, picked);
+      } else {
+        node.setOutputData(0, {});
+        this.callbacks.setResult(node, {});
+      }
+
+    } else if (nodeType === "Transform/ObjectMerge") {
+      const a = node.getInputData(0) || {};
+      const b = node.getInputData(1) || {};
+      const merged = _deepMerge(a, b);
+      node.setOutputData(0, merged);
+      this.callbacks.setResult(node, merged);
+
+    } else if (nodeType === "Transform/CodeExpression") {
+      const data = node.getInputData(0);
+      const code = node.properties?.code || "return data;";
+      try {
+        const fn = new Function("data", "JSON", "Math", "Date", "Array", "Object", "String", "Number", "Boolean", code);
+        const result = fn(data, JSON, Math, Date, Array, Object, String, Number, Boolean);
+        node.setOutputData(0, result);
+        this.callbacks.setResult(node, result);
+      } catch (e) {
+        node.setOutputData(0, { error: e.message });
+        this.callbacks.setResult(node, { error: e.message });
+      }
+
+    } else if (nodeType === "Transform/HttpRequest") {
+      await this._handleHttpRequest(node);
+      this._activateAllOutputs(node);
+      return; // _handleHttpRequest manages its own activation
+
+    } else {
+      // ── Standard utility nodes ──
+      if (node.onExecute) {
+        node.onExecute();
+      }
+
+      const value = node.properties?.value;
+      if (value !== undefined) {
+        this.nodeResults.set(node.id, value);
+        if (node.outputs) {
+          for (let i = 0; i < node.outputs.length; i++) {
+            node.setOutputData(i, value);
+          }
+        }
+      }
     }
 
-    // Run LiteGraph's onExecute to push output data
-    if (node.onExecute) {
-      node.onExecute();
-    }
-
-    // Store result for downstream resolution
-    const value = node.properties?.value;
-    if (value !== undefined) {
-      this.nodeResults.set(node.id, value);
-    }
-
-    // Utility nodes activate ALL outputs
     this._activateAllOutputs(node);
   }
 
   /**
-   * Handle HTTP Request node in the browser using fetch().
+   * Handle HTTP Request node — makes an HTTP call using Node.js http/https.
    */
-  async _handleHttpRequestBrowser(node) {
-    this.callbacks.setStatus(node, "running");
-
-    const urlInput = node.getInputData ? node.getInputData(0) : null;
-    const bodyInput = node.getInputData ? node.getInputData(1) : null;
-    const url = urlInput || node.properties?.url || "";
+  async _handleHttpRequest(node) {
+    const inputUrl = node.getInputData(0) || node.properties?.url || "";
+    const body = node.getInputData(1);
     const method = (node.properties?.method || "GET").toUpperCase();
+    let headers;
+    try { headers = JSON.parse(node.properties?.headers || "{}"); } catch { headers = {}; }
 
-    if (!url) {
-      this.callbacks.setStatus(node, "error");
-      this.callbacks.setResult(node, { error: "No URL provided" });
-      this.activeOutputs.set(node.id, new Set());
+    if (!inputUrl) {
+      node.setOutputData(0, { error: "No URL provided" });
+      node.setOutputData(1, 0);
       return;
     }
 
-    let headers = {};
     try {
-      headers = JSON.parse(node.properties?.headers || "{}");
-    } catch { /* ignore parse errors */ }
+      const parsedUrl = new (require("url").URL)(inputUrl);
+      const httpModule = require(parsedUrl.protocol === "https:" ? "https" : "http");
+      const result = await new Promise((resolve, reject) => {
+        const opts = {
+          hostname: parsedUrl.hostname,
+          port: parsedUrl.port || (parsedUrl.protocol === "https:" ? 443 : 80),
+          path: parsedUrl.pathname + parsedUrl.search,
+          method: method,
+          headers: { "Content-Type": "application/json", ...headers },
+        };
+        const req = httpModule.request(opts, (res) => {
+          const chunks = [];
+          res.on("data", (c) => chunks.push(c));
+          res.on("end", () => {
+            const raw = Buffer.concat(chunks).toString();
+            let parsed;
+            try { parsed = JSON.parse(raw); } catch { parsed = raw; }
+            resolve({ body: parsed, status: res.statusCode });
+          });
+        });
+        req.on("error", reject);
+        req.setTimeout(30000, () => { req.destroy(); reject(new Error("Request timeout")); });
+        if (body && method !== "GET") {
+          req.write(typeof body === "string" ? body : JSON.stringify(body));
+        }
+        req.end();
+      });
 
-    const fetchOpts = { method, headers };
-    if (bodyInput && method !== "GET" && method !== "HEAD") {
-      fetchOpts.body = typeof bodyInput === "string" ? bodyInput : JSON.stringify(bodyInput);
-      if (!headers["Content-Type"] && !headers["content-type"]) {
-        fetchOpts.headers["Content-Type"] = "application/json";
-      }
-    }
-
-    try {
-      const resp = await fetch(url, fetchOpts);
-      const status = resp.status;
-      let responseData;
-      const ct = resp.headers.get("content-type") || "";
-      if (ct.includes("application/json")) {
-        responseData = await resp.json();
-      } else {
-        responseData = await resp.text();
-      }
-
-      node.setOutputData(0, responseData);
-      node.setOutputData(1, status);
-
-      this.callbacks.setStatus(node, resp.ok ? "success" : "warning");
-      this.callbacks.setResult(node, responseData);
-      this.nodeResults.set(node.id, responseData);
-      this._activateAllOutputs(node);
+      node.setOutputData(0, result.body);
+      node.setOutputData(1, result.status);
+      this.callbacks.setResult(node, result.body);
     } catch (e) {
-      this.callbacks.setStatus(node, "error");
-      this.callbacks.setResult(node, { error: e.message });
       node.setOutputData(0, { error: e.message });
       node.setOutputData(1, 0);
-      this.activeOutputs.set(node.id, new Set());
+      this.callbacks.setResult(node, { error: e.message });
     }
   }
 
-  /**
-   * Handle a control flow node — evaluate condition and activate specific outputs.
-   */
   async _handleControlFlow(node, type) {
     this.callbacks.setStatus(node, "running");
 
@@ -346,7 +378,6 @@ class DAGExecutor {
       activeSlots.add(...this._handleSwitch(node));
     } else if (type === "foreach") {
       await this._handleForEach(node);
-      // ForEach handles its own output activation
       this.callbacks.setStatus(node, "success");
       this.executed.add(node.id);
       return;
@@ -360,7 +391,6 @@ class DAGExecutor {
     this.activeOutputs.set(node.id, activeSlots);
     this.callbacks.setStatus(node, "success");
 
-    // Set output data for the active slots
     const value = this._resolveControlFlowInput(node, "value") ??
                   this._resolveControlFlowInput(node, "condition");
     for (const slot of activeSlots) {
@@ -368,21 +398,16 @@ class DAGExecutor {
     }
   }
 
-  /**
-   * If/Else: evaluate the condition input and activate true or false branch.
-   */
   _handleIfElse(node) {
     const condition = this._resolveControlFlowInput(node, "condition");
     const value = this._resolveControlFlowInput(node, "value");
 
     if (condition) {
-      // True branch = output slot 0
       node.setOutputData(0, value);
       node.setOutputData(1, null);
       this.callbacks.setResult(node, { branch: "true", value });
       return [0];
     } else {
-      // False branch = output slot 1
       node.setOutputData(0, null);
       node.setOutputData(1, value);
       this.callbacks.setResult(node, { branch: "false", value });
@@ -390,15 +415,11 @@ class DAGExecutor {
     }
   }
 
-  /**
-   * Switch: match key against case values and activate the matching output.
-   */
   _handleSwitch(node) {
     const value = this._resolveControlFlowInput(node, "value");
     const key = this._resolveControlFlowInput(node, "key");
     const cases = (node.properties.cases || "").split(",").map(s => s.trim());
 
-    // Reset all outputs
     for (let i = 0; i < (node.outputs || []).length; i++) {
       node.setOutputData(i, null);
     }
@@ -409,7 +430,6 @@ class DAGExecutor {
       this.callbacks.setResult(node, { branch: `case_${matchIndex + 1}`, key, value });
       return [matchIndex];
     } else {
-      // Default (last output)
       const defaultSlot = (node.outputs || []).length - 1;
       node.setOutputData(defaultSlot, value);
       this.callbacks.setResult(node, { branch: "default", key, value });
@@ -417,15 +437,6 @@ class DAGExecutor {
     }
   }
 
-  /**
-   * ForEach: iterate over an array, executing downstream subgraph per item.
-   *
-   * For Phase 1, we take a simpler approach: emit each item sequentially
-   * on the "item" output, and emit the full array on "done" when complete.
-   * The DAG executor doesn't re-run the downstream subgraph per item yet —
-   * instead it emits the full array as the result so downstream nodes
-   * can consume it. Full subgraph-per-item execution is a Phase 2 feature.
-   */
   async _handleForEach(node) {
     const arr = this._resolveControlFlowInput(node, "array");
 
@@ -436,28 +447,17 @@ class DAGExecutor {
       return;
     }
 
-    // For now, emit the last item on "item", last index on "index",
-    // and the full array on "done"
     const lastItem = arr.length > 0 ? arr[arr.length - 1] : null;
     const lastIndex = arr.length > 0 ? arr.length - 1 : 0;
 
-    node.setOutputData(0, lastItem);  // item
-    node.setOutputData(1, lastIndex); // index
-    node.setOutputData(2, arr);       // done
+    node.setOutputData(0, lastItem);
+    node.setOutputData(1, lastIndex);
+    node.setOutputData(2, arr);
 
-    this.callbacks.setResult(node, {
-      items: arr.length,
-      lastItem,
-      array: arr,
-    });
-
-    // Activate all outputs
+    this.callbacks.setResult(node, { items: arr.length, lastItem, array: arr });
     this._activateAllOutputs(node);
   }
 
-  /**
-   * Merge: collect data from all active incoming branches.
-   */
   _handleMerge(node) {
     const merged = {};
     for (let i = 0; i < (node.inputs || []).length; i++) {
@@ -472,22 +472,15 @@ class DAGExecutor {
     this.nodeResults.set(node.id, merged);
   }
 
-  /**
-   * Resolve an input value for a control flow node by name.
-   * Uses the same strategy as app.resolveInputValue() — check connected
-   * upstream nodes for _executionResult or properties.value.
-   */
   _resolveControlFlowInput(node, inputName) {
     if (!node.inputs) return null;
 
     const inputIndex = node.inputs.findIndex(inp => inp.name === inputName);
     if (inputIndex < 0) return null;
 
-    // Try LiteGraph native first
     let data = node.getInputData(inputIndex);
     if (data !== undefined && data !== null) return data;
 
-    // Manual link walk
     const input = node.inputs[inputIndex];
     if (!input || input.link == null) return null;
 
@@ -497,17 +490,14 @@ class DAGExecutor {
     const originNode = this.graph.getNodeById(link[1]);
     if (!originNode) return null;
 
-    // Check execution result
     if (originNode._executionResult !== undefined) {
       return originNode._executionResult;
     }
 
-    // Check properties.value (utility nodes)
     if (originNode.properties?.value !== undefined) {
       return originNode.properties.value;
     }
 
-    // Try output data
     const outputIndex = link[2];
     if (originNode.getOutputData) {
       return originNode.getOutputData(outputIndex);
@@ -516,9 +506,6 @@ class DAGExecutor {
     return null;
   }
 
-  /**
-   * Mark all output slots of a node as active.
-   */
   _activateAllOutputs(node) {
     const slots = new Set();
     for (let i = 0; i < (node.outputs || []).length; i++) {
@@ -527,3 +514,5 @@ class DAGExecutor {
     this.activeOutputs.set(node.id, slots);
   }
 }
+
+module.exports = DAGExecutor;

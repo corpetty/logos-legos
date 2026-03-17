@@ -6,12 +6,18 @@
  * Same REST API as the Python bridge for frontend compatibility.
  *
  * Endpoints:
- *   GET  /api/status     - Bridge and logos-core status
- *   GET  /api/modules    - List available modules with metadata and methods
- *   GET  /api/modules/:n - Get a single module's details
- *   POST /api/execute    - Execute a single method call
- *   POST /api/workflow   - Execute a full workflow pipeline
- *   GET  /api/discover   - Trigger re-discovery of modules
+ *   GET  /api/status              - Bridge and logos-core status
+ *   GET  /api/modules             - List available modules with metadata and methods
+ *   GET  /api/modules/:n          - Get a single module's details
+ *   POST /api/execute             - Execute a single method call
+ *   POST /api/workflow            - Execute a full workflow pipeline
+ *   GET  /api/discover            - Trigger re-discovery of modules
+ *   GET  /api/workflows           - List deployed workflows
+ *   GET  /api/executions          - Recent execution log
+ *   POST /api/workflows/deploy    - Deploy a workflow for webhook/trigger execution
+ *   POST /api/workflows/:id/undeploy - Remove a deployed workflow
+ *   POST /api/workflows/:id/trigger  - Manually trigger a deployed workflow
+ *   POST /api/webhooks/:id        - Webhook endpoint — executes workflow with POST body
  *
  * Usage:
  *   node bridge/server.js [--port 8081] [--plugins-dir PATH] [--lib-path PATH] [--mock]
@@ -20,6 +26,7 @@
 const http = require("http");
 const url = require("url");
 const LogosAdapter = require("./logos-adapter");
+const WorkflowEngine = require("./workflow-engine");
 
 // ── CLI Argument Parsing ─────────────────────────────────────────────────
 
@@ -67,7 +74,7 @@ Options:
 
 // ── HTTP Server ──────────────────────────────────────────────────────────
 
-function createServer(adapter, port) {
+function createServer(adapter, engine, port) {
   const server = http.createServer(async (req, res) => {
     const parsed = url.parse(req.url, true);
     const pathname = parsed.pathname;
@@ -85,10 +92,11 @@ function createServer(adapter, port) {
 
     try {
       if (req.method === "GET") {
-        await handleGet(pathname, adapter, res);
+        await handleGet(pathname, adapter, engine, res);
       } else if (req.method === "POST") {
         const body = await readBody(req);
-        await handlePost(pathname, body, adapter, res);
+        const headers = req.headers;
+        await handlePost(pathname, body, headers, adapter, engine, res);
       } else {
         jsonResponse(res, { error: "Method not allowed" }, 405);
       }
@@ -106,14 +114,17 @@ function createServer(adapter, port) {
     if (status.sdk) console.log("[bridge] logos-js-sdk: connected");
     if (status.logoscore) console.log("[bridge] logoscore CLI: available");
     if (status.lm) console.log("[bridge] lm CLI: available");
+    console.log(`[bridge] Webhook URL: http://localhost:${port}/api/webhooks/<workflowId>`);
   });
 
   return server;
 }
 
-async function handleGet(pathname, adapter, res) {
+async function handleGet(pathname, adapter, engine, res) {
   if (pathname === "/api/status") {
-    jsonResponse(res, adapter.status());
+    const status = adapter.status();
+    status.deployedWorkflows = engine.listDeployed().length;
+    jsonResponse(res, status);
   } else if (pathname === "/api/modules") {
     const modules = adapter.getModules();
     jsonResponse(res, { modules, mode: adapter.mode });
@@ -128,12 +139,16 @@ async function handleGet(pathname, adapter, res) {
   } else if (pathname === "/api/discover") {
     const result = await adapter.discover();
     jsonResponse(res, result);
+  } else if (pathname === "/api/workflows") {
+    jsonResponse(res, { workflows: engine.listDeployed() });
+  } else if (pathname === "/api/executions") {
+    jsonResponse(res, { executions: engine.getExecutionLog() });
   } else {
     jsonResponse(res, { error: "Not found" }, 404);
   }
 }
 
-async function handlePost(pathname, body, adapter, res) {
+async function handlePost(pathname, body, headers, adapter, engine, res) {
   if (pathname === "/api/execute") {
     const { module: moduleName, method, params } = body;
     if (!moduleName || !method) {
@@ -158,6 +173,50 @@ async function handlePost(pathname, body, adapter, res) {
     }
     const result = await adapter.loadModule(moduleName);
     jsonResponse(res, result);
+
+  // ── Workflow deployment & execution routes ──
+  } else if (pathname === "/api/workflows/deploy") {
+    const { workflowId, workflow } = body;
+    if (!workflowId || !workflow) {
+      jsonResponse(res, { error: "workflowId and workflow required" }, 400);
+      return;
+    }
+    const result = engine.deploy(workflowId, workflow);
+    console.log(`[bridge] Deployed workflow '${workflowId}' (${result.triggers.length} trigger(s))`);
+    jsonResponse(res, result);
+
+  } else if (pathname.match(/^\/api\/workflows\/[^/]+\/undeploy$/)) {
+    const workflowId = pathname.split("/")[3];
+    const result = engine.undeploy(workflowId);
+    if (result.success) {
+      console.log(`[bridge] Undeployed workflow '${workflowId}'`);
+    }
+    jsonResponse(res, result, result.success ? 200 : 404);
+
+  } else if (pathname.match(/^\/api\/workflows\/[^/]+\/trigger$/)) {
+    const workflowId = pathname.split("/")[3];
+    const { triggerType, data } = body;
+    if (!triggerType) {
+      jsonResponse(res, { error: "triggerType required" }, 400);
+      return;
+    }
+    console.log(`[bridge] Triggering workflow '${workflowId}' (type: ${triggerType})`);
+    const result = await engine.execute(workflowId, triggerType, data || {});
+    jsonResponse(res, result, result.success ? 200 : 500);
+
+  } else if (pathname.startsWith("/api/webhooks/")) {
+    const workflowId = pathname.slice("/api/webhooks/".length);
+    if (!workflowId) {
+      jsonResponse(res, { error: "workflowId required in URL" }, 400);
+      return;
+    }
+    console.log(`[bridge] Webhook received for workflow '${workflowId}'`);
+    const result = await engine.execute(workflowId, "webhook", {
+      body: body,
+      headers: headers,
+    });
+    jsonResponse(res, result, result.success ? 200 : 500);
+
   } else {
     jsonResponse(res, { error: "Not found" }, 404);
   }
@@ -203,7 +262,10 @@ async function main() {
 
   await adapter.init();
 
-  const server = createServer(adapter, opts.port);
+  const engine = new WorkflowEngine(adapter);
+  console.log("[bridge] Workflow engine ready");
+
+  const server = createServer(adapter, engine, opts.port);
 
   // Graceful shutdown
   process.on("SIGINT", () => {

@@ -7,6 +7,7 @@ class ModuleRegistry {
     this.modules = [];
     this.utilityNodes = [];
     this.controlFlowNodes = [];
+    this.triggerNodes = [];
     this.dataTypes = {};
     this.loaded = false;
     this.source = "static"; // "static" | "bridge"
@@ -21,6 +22,7 @@ class ModuleRegistry {
     this.modules = data.modules || [];
     this.utilityNodes = data.utilityNodes || [];
     this.controlFlowNodes = data.controlFlowNodes || [];
+    this.triggerNodes = data.triggerNodes || [];
     this.dataTypes = data.dataTypes || {};
     this.loaded = true;
     this.source = "static";
@@ -135,6 +137,10 @@ class ModuleRegistry {
 
   getControlFlowNodes() {
     return this.controlFlowNodes;
+  }
+
+  getTriggerNodes() {
+    return this.triggerNodes;
   }
 
   getTypeColor(typeName) {

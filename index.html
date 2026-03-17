@@ -62,6 +62,12 @@
       <button id="btn-run" class="toolbar-btn run" title="Execute workflow via bridge">
         <span class="icon">&#9654;</span> Run
       </button>
+      <button id="btn-deploy" class="toolbar-btn deploy" title="Deploy workflow for webhook/trigger execution">
+        <span class="icon">&#9889;</span> Deploy
+      </button>
+      <button id="btn-executions" class="toolbar-btn executions" title="View execution history">
+        <span class="icon">&#9776;</span> Executions
+      </button>
 
       <!-- Bridge connection control (right-aligned) -->
       <div style="margin-left: auto; display: flex; align-items: center; gap: 6px;">
@@ -98,6 +104,27 @@
             <button id="info-panel-close">&times;</button>
           </div>
           <div id="info-content"></div>
+        </div>
+
+        <!-- Executions panel (slides in from right) -->
+        <div id="executions-panel">
+          <div id="executions-panel-header">
+            <h4>Execution History</h4>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <button id="executions-refresh" class="toolbar-btn" title="Refresh">&#8635;</button>
+              <button id="executions-panel-close">&times;</button>
+            </div>
+          </div>
+          <div id="executions-list"></div>
+        </div>
+
+        <!-- Link data tooltip (floating, positioned near clicked link) -->
+        <div id="link-tooltip" class="link-tooltip hidden">
+          <div id="link-tooltip-header">
+            <span id="link-tooltip-label"></span>
+            <button id="link-tooltip-close">&times;</button>
+          </div>
+          <pre id="link-tooltip-data"></pre>
         </div>
       </div>
     </div>
@@ -145,6 +172,28 @@
     // Info panel close button
     document.getElementById("info-panel-close").addEventListener("click", () => {
       document.getElementById("info-panel").classList.remove("visible");
+    });
+
+    // Executions panel close button
+    document.getElementById("executions-panel-close").addEventListener("click", () => {
+      document.getElementById("executions-panel").classList.remove("visible");
+      if (window.app && window.app._executionsRefreshTimer) {
+        clearInterval(window.app._executionsRefreshTimer);
+        window.app._executionsRefreshTimer = null;
+      }
+    });
+
+    // Link tooltip close button
+    document.getElementById("link-tooltip-close").addEventListener("click", () => {
+      document.getElementById("link-tooltip").classList.add("hidden");
+    });
+
+    // Close link tooltip on click outside
+    document.addEventListener("click", (e) => {
+      const tooltip = document.getElementById("link-tooltip");
+      if (!tooltip.classList.contains("hidden") && !tooltip.contains(e.target)) {
+        tooltip.classList.add("hidden");
+      }
     });
   </script>
 </body>

@@ -134,6 +134,74 @@ class BridgeClient {
     return result;
   }
 
+  // ── Workflow deployment ──
+
+  /**
+   * Deploy a workflow to the bridge for webhook/trigger execution.
+   * @param {string} workflowId - Unique identifier for the workflow
+   * @param {object} workflow - Serialized graph data (from graph.serialize())
+   * @returns {{ success, workflowId, triggers, webhookUrl }}
+   */
+  async deploy(workflowId, workflow) {
+    if (!this.connected) {
+      throw new Error("Not connected to bridge");
+    }
+    const result = await this._post("/api/workflows/deploy", { workflowId, workflow });
+    this._emit("workflowDeployed", result);
+    return result;
+  }
+
+  /**
+   * Remove a deployed workflow from the bridge.
+   * @param {string} workflowId - The workflow to undeploy
+   */
+  async undeploy(workflowId) {
+    if (!this.connected) {
+      throw new Error("Not connected to bridge");
+    }
+    const result = await this._post(`/api/workflows/${workflowId}/undeploy`, {});
+    this._emit("workflowUndeployed", { workflowId, ...result });
+    return result;
+  }
+
+  /**
+   * List all deployed workflows on the bridge.
+   */
+  async listDeployed() {
+    if (!this.connected) {
+      throw new Error("Not connected to bridge");
+    }
+    return await this._get("/api/workflows");
+  }
+
+  /**
+   * Manually trigger a deployed workflow.
+   * @param {string} workflowId - The workflow to trigger
+   * @param {string} triggerType - "webhook" | "timer" | "manual"
+   * @param {object} data - Trigger data payload
+   */
+  async triggerWorkflow(workflowId, triggerType, data = {}) {
+    if (!this.connected) {
+      throw new Error("Not connected to bridge");
+    }
+    const result = await this._post(`/api/workflows/${workflowId}/trigger`, {
+      triggerType,
+      data,
+    });
+    this._emit("workflowTriggered", { workflowId, triggerType, ...result });
+    return result;
+  }
+
+  /**
+   * Get recent execution log from the bridge.
+   */
+  async getExecutions() {
+    if (!this.connected) {
+      throw new Error("Not connected to bridge");
+    }
+    return await this._get("/api/executions");
+  }
+
   // ── Event system ──
 
   on(event, callback) {

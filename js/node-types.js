@@ -20,6 +20,19 @@ const STATUS_COLORS = {
   error:   { border: "#f44336", glow: "rgba(244, 67, 54, 0.4)", icon: "\u2718" },
 };
 
+function deepMerge(target, source) {
+  const result = { ...target };
+  for (const key in source) {
+    if (source[key] && typeof source[key] === "object" && !Array.isArray(source[key]) &&
+        result[key] && typeof result[key] === "object" && !Array.isArray(result[key])) {
+      result[key] = deepMerge(result[key], source[key]);
+    } else {
+      result[key] = source[key];
+    }
+  }
+  return result;
+}
+
 function getSlotColor(typeName) {
   if (NODE_SLOT_COLORS[typeName]) return NODE_SLOT_COLORS[typeName];
   if (window.moduleRegistry) return window.moduleRegistry.getTypeColor(typeName);
@@ -40,6 +53,9 @@ function registerModuleNodes(registry) {
   }
   for (const cfNode of registry.getControlFlowNodes()) {
     registerControlFlowNode(cfNode);
+  }
+  for (const trigNode of registry.getTriggerNodes()) {
+    registerTriggerNode(trigNode);
   }
 }
 
@@ -191,8 +207,8 @@ function registerUtilityNode(util) {
 
   UtilNode.title = util.displayName;
   UtilNode.desc = util.description;
-  UtilNode.prototype.color = "#37474F";
-  UtilNode.prototype.bgcolor = "#263238";
+  UtilNode.prototype.color = util.color ? darkenColor(util.color, 0.3) : "#37474F";
+  UtilNode.prototype.bgcolor = util.color ? darkenColor(util.color, 0.6) : "#263238";
 
   UtilNode.prototype.onExecute = function () {
     if (util.name === "StringConstant") {
@@ -217,6 +233,71 @@ function registerUtilityNode(util) {
       const vars = this.getInputData(0) || {};
       const result = template.replace(/\{(\w+)\}/g, (_, key) => vars[key] ?? `{${key}}`);
       this.setOutputData(0, result);
+    } else if (util.name === "ArrayMap") {
+      const arr = this.getInputData(0);
+      const expr = this.properties.expression || "item";
+      if (Array.isArray(arr)) {
+        try {
+          const fn = new Function("item", "index", `return (${expr});`);
+          this.setOutputData(0, arr.map((item, index) => fn(item, index)));
+        } catch (e) {
+          this.setOutputData(0, { error: e.message });
+        }
+      } else {
+        this.setOutputData(0, []);
+      }
+    } else if (util.name === "ArrayFilter") {
+      const arr = this.getInputData(0);
+      const cond = this.properties.condition || "true";
+      if (Array.isArray(arr)) {
+        try {
+          const fn = new Function("item", "index", `return !!(${cond});`);
+          const passed = [];
+          const rejected = [];
+          arr.forEach((item, index) => {
+            if (fn(item, index)) passed.push(item);
+            else rejected.push(item);
+          });
+          this.setOutputData(0, passed);
+          this.setOutputData(1, rejected);
+        } catch (e) {
+          this.setOutputData(0, []);
+          this.setOutputData(1, []);
+        }
+      } else {
+        this.setOutputData(0, []);
+        this.setOutputData(1, []);
+      }
+    } else if (util.name === "ObjectPick") {
+      const obj = this.getInputData(0);
+      const keys = (this.properties.keys || "").split(",").map(k => k.trim()).filter(Boolean);
+      if (obj && typeof obj === "object") {
+        const picked = {};
+        for (const k of keys) {
+          if (k in obj) picked[k] = obj[k];
+        }
+        this.setOutputData(0, picked);
+      } else {
+        this.setOutputData(0, {});
+      }
+    } else if (util.name === "ObjectMerge") {
+      const a = this.getInputData(0) || {};
+      const b = this.getInputData(1) || {};
+      this.setOutputData(0, deepMerge(a, b));
+    } else if (util.name === "CodeExpression") {
+      const data = this.getInputData(0);
+      const code = this.properties.code || "return data;";
+      try {
+        const fn = new Function("data", "JSON", "Math", "Date", "Array", "Object", "String", "Number", "Boolean", code);
+        const result = fn(data, JSON, Math, Date, Array, Object, String, Number, Boolean);
+        this.setOutputData(0, result);
+      } catch (e) {
+        this.setOutputData(0, { error: e.message });
+      }
+    } else if (util.name === "HttpRequest") {
+      // Browser preview: placeholder — real execution via DAGExecutor
+      this.setOutputData(0, { pending: "HTTP requests execute via Run" });
+      this.setOutputData(1, 0);
     }
   };
 
@@ -362,6 +443,83 @@ function registerControlFlowNode(def) {
   };
 
   LiteGraph.registerNodeType(path, CFNode);
+}
+
+/**
+ * Register a trigger node (Webhook, Timer, Manual).
+ * Trigger nodes are root nodes with no inputs — they produce data when an
+ * external event fires (webhook POST, timer tick, manual button press).
+ * The DAGExecutor recognizes _trigger property and treats them as pre-loaded roots.
+ */
+function registerTriggerNode(def) {
+  const path = `${def.category}/${def.name}`;
+
+  function TriggerNode() {
+    // Trigger nodes have no inputs — only outputs
+    for (const output of def.outputs || []) {
+      this.addOutput(output.name, output.type);
+    }
+
+    this.properties = {
+      _trigger: def._trigger,
+    };
+
+    // Add editable properties as widgets
+    for (const prop of def.properties || []) {
+      this.addProperty(prop.name, prop.default, prop.type);
+      if (prop.type === "string") {
+        this.addWidget("text", prop.name, prop.default, (v) => {
+          this.properties[prop.name] = v;
+        });
+      } else if (prop.type === "number") {
+        this.addWidget("number", prop.name, prop.default, (v) => {
+          this.properties[prop.name] = v;
+        });
+      }
+    }
+
+    const widgetCount = (def.properties || []).length;
+    const slotCount = Math.max((def.outputs || []).length, 1);
+    this.size = [220, 30 + slotCount * 26 + widgetCount * 26];
+  }
+
+  TriggerNode.title = def.displayName;
+  TriggerNode.desc = def.description;
+
+  // Purple/magenta theme for triggers
+  TriggerNode.prototype.color = darkenColor(def.color, 0.3);
+  TriggerNode.prototype.bgcolor = darkenColor(def.color, 0.6);
+
+  // Trigger nodes don't produce data during LiteGraph's graph.step() preview.
+  // They only fire when triggered externally (webhook, timer, manual deploy).
+  TriggerNode.prototype.onExecute = function () {};
+
+  TriggerNode.prototype.onDrawForeground = function (ctx) {
+    // Draw "TRIGGER" badge
+    ctx.fillStyle = def.color;
+    ctx.font = "bold 8px monospace";
+    ctx.textAlign = "right";
+    ctx.fillText("TRIGGER", this.size[0] - 8, -6);
+
+    // Lightning bolt icon
+    ctx.fillStyle = def.color;
+    ctx.font = "12px sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText("\u26A1", 6, -LiteGraph.NODE_TITLE_HEIGHT / 2 + 4);
+
+    // Draw execution status overlay
+    drawExecutionOverlay(ctx, this);
+  };
+
+  TriggerNode.prototype.onDrawBackground = function (ctx) {
+    drawStatusBorder(ctx, this);
+  };
+
+  TriggerNode.prototype.getSlotColor = function (slot) {
+    return getSlotColor(slot.type);
+  };
+
+  LiteGraph.registerNodeType(path, TriggerNode);
 }
 
 // ── Execution Visualization ──────────────────────────────────────────────

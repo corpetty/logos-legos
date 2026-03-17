@@ -52,6 +52,9 @@ class LogosLegosApp {
     // Setup bridge connection UI
     this.setupBridge();
 
+    // Setup link data tooltip (right-click on links after execution)
+    this.setupLinkTooltip();
+
     // Handle resize
     this.handleResize();
     window.addEventListener("resize", () => this.handleResize());
@@ -278,6 +281,82 @@ class LogosLegosApp {
   }
 
   /**
+   * Deploy the current workflow to the bridge server for webhook/trigger execution.
+   */
+  async deployWorkflow() {
+    if (!this.bridge.connected) {
+      this.showNotification("Connect to bridge server first", "warning");
+      return;
+    }
+
+    // Validate first
+    const validation = this.workflow.validate();
+    if (!validation.valid) {
+      this.showValidation(validation);
+      return;
+    }
+
+    const workflowId = prompt("Workflow ID (used in webhook URL):", "my-workflow");
+    if (!workflowId) return;
+
+    // Serialize the graph
+    const graphData = this.graph.serialize();
+
+    try {
+      const result = await this.bridge.deploy(workflowId, graphData);
+      if (result.success) {
+        let msg = `Deployed "${workflowId}" (${result.triggers.length} trigger(s))`;
+        if (result.webhookUrl) {
+          msg += `\nWebhook: ${result.webhookUrl}`;
+        }
+        this.showNotification(msg, "success");
+
+        // Show webhook URL in info panel if there's a webhook trigger
+        if (result.webhookUrl) {
+          this.showDeployResult(workflowId, result);
+        }
+      } else {
+        this.showNotification(`Deploy failed: ${result.error}`, "error");
+      }
+    } catch (e) {
+      this.showNotification(`Deploy error: ${e.message}`, "error");
+    }
+  }
+
+  /**
+   * Show deployment result with webhook URL in the info panel.
+   */
+  showDeployResult(workflowId, result) {
+    const panel = document.getElementById("info-panel");
+    const content = document.getElementById("info-content");
+
+    const webhookUrl = result.webhookUrl || `http://localhost:8081/api/webhooks/${workflowId}`;
+    const curlCmd = `curl -X POST ${webhookUrl} \\
+  -H "Content-Type: application/json" \\
+  -d '{"message": "hello from webhook"}'`;
+
+    let html = `<h3 style="color: #E040FB">⚡ Workflow Deployed</h3>`;
+    html += `<p>Workflow <strong>${workflowId}</strong> is now live on the bridge.</p>`;
+    html += `<h4>Triggers</h4>`;
+    html += `<ul>`;
+    for (const trigger of result.triggers || []) {
+      html += `<li>${trigger.type}${trigger.path ? ` (${trigger.path})` : ""}</li>`;
+    }
+    html += `</ul>`;
+
+    if (result.webhookUrl) {
+      html += `<h4>Webhook URL</h4>`;
+      html += `<pre class="cli-output">${webhookUrl}</pre>`;
+      html += `<h4>Test with cURL</h4>`;
+      html += `<pre class="cli-output">${curlCmd}</pre>`;
+      html += `<button onclick="navigator.clipboard.writeText('${webhookUrl}').then(()=>window.app.showNotification('URL copied!','success'))">Copy URL</button>`;
+    }
+
+    content.innerHTML = html;
+    panel.classList.add("visible");
+  }
+
+  /**
    * Gather input values for a node from its connected upstream nodes.
    */
   gatherNodeInputs(node) {
@@ -488,58 +567,68 @@ class LogosLegosApp {
       sidebar.appendChild(section);
     }
 
-    // Utility nodes section
+    // Utility + Transform nodes sections (grouped by category)
     if (this.registry.utilityNodes.length > 0) {
-      const utilSection = document.createElement("div");
-      utilSection.className = "sidebar-category";
-
-      const utilHeader = document.createElement("div");
-      utilHeader.className = "category-header";
-      utilHeader.innerHTML = `
-        <span class="category-toggle">&#9660;</span>
-        <span class="category-name">Utility</span>
-        <span class="category-count">${this.registry.utilityNodes.length}</span>
-      `;
-      utilHeader.addEventListener("click", () => {
-        utilSection.classList.toggle("collapsed");
-        const toggle = utilHeader.querySelector(".category-toggle");
-        toggle.innerHTML = utilSection.classList.contains("collapsed")
-          ? "&#9654;"
-          : "&#9660;";
-      });
-      utilSection.appendChild(utilHeader);
-
-      const utilList = document.createElement("div");
-      utilList.className = "module-list";
-
+      const utilByCategory = new Map();
       for (const util of this.registry.utilityNodes) {
-        const item = document.createElement("div");
-        item.className = "method-item utility-item";
-        item.draggable = true;
-        item.title = util.description;
-        item.innerHTML = `
-          <span class="method-name">${util.displayName}</span>
-          <span class="method-io">${(util.inputs || []).length}&#8594;${(util.outputs || []).length}</span>
-        `;
-
-        item.addEventListener("dragstart", (e) => {
-          e.dataTransfer.setData(
-            "text/plain",
-            JSON.stringify({
-              type: "utility",
-              nodeType: `${util.category}/${util.name}`,
-            })
-          );
-        });
-        item.addEventListener("dblclick", () => {
-          this.addNodeAtCenter(`${util.category}/${util.name}`);
-        });
-
-        utilList.appendChild(item);
+        const cat = util.category || "Utility";
+        if (!utilByCategory.has(cat)) utilByCategory.set(cat, []);
+        utilByCategory.get(cat).push(util);
       }
 
-      utilSection.appendChild(utilList);
-      sidebar.appendChild(utilSection);
+      for (const [catName, nodes] of utilByCategory) {
+        const isTransform = catName === "Transform";
+        const catSection = document.createElement("div");
+        catSection.className = "sidebar-category";
+
+        const catHeader = document.createElement("div");
+        catHeader.className = "category-header";
+        catHeader.innerHTML = `
+          <span class="category-toggle">&#9660;</span>
+          <span class="category-name">${catName}</span>
+          <span class="category-count">${nodes.length}</span>
+        `;
+        catHeader.addEventListener("click", () => {
+          catSection.classList.toggle("collapsed");
+          const toggle = catHeader.querySelector(".category-toggle");
+          toggle.innerHTML = catSection.classList.contains("collapsed")
+            ? "&#9654;"
+            : "&#9660;";
+        });
+        catSection.appendChild(catHeader);
+
+        const nodeList = document.createElement("div");
+        nodeList.className = "module-list";
+
+        for (const util of nodes) {
+          const item = document.createElement("div");
+          item.className = `method-item ${isTransform ? "transform-item" : "utility-item"}`;
+          item.draggable = true;
+          item.title = util.description;
+          item.innerHTML = `
+            <span class="method-name">${util.displayName}</span>
+            <span class="method-io">${(util.inputs || []).length}&#8594;${(util.outputs || []).length}</span>
+          `;
+
+          item.addEventListener("dragstart", (e) => {
+            e.dataTransfer.setData(
+              "text/plain",
+              JSON.stringify({
+                type: "utility",
+                nodeType: `${util.category}/${util.name}`,
+              })
+            );
+          });
+          item.addEventListener("dblclick", () => {
+            this.addNodeAtCenter(`${util.category}/${util.name}`);
+          });
+
+          nodeList.appendChild(item);
+        }
+
+        catSection.appendChild(nodeList);
+        sidebar.appendChild(catSection);
+      }
     }
 
     // Control Flow nodes section
@@ -595,6 +684,61 @@ class LogosLegosApp {
 
       flowSection.appendChild(flowList);
       sidebar.appendChild(flowSection);
+    }
+
+    // Trigger nodes section
+    if (this.registry.triggerNodes && this.registry.triggerNodes.length > 0) {
+      const trigSection = document.createElement("div");
+      trigSection.className = "sidebar-category";
+
+      const trigHeader = document.createElement("div");
+      trigHeader.className = "category-header";
+      trigHeader.innerHTML = `
+        <span class="category-toggle">&#9660;</span>
+        <span class="category-name">Trigger</span>
+        <span class="category-count">${this.registry.triggerNodes.length}</span>
+      `;
+      trigHeader.addEventListener("click", () => {
+        trigSection.classList.toggle("collapsed");
+        const toggle = trigHeader.querySelector(".category-toggle");
+        toggle.innerHTML = trigSection.classList.contains("collapsed")
+          ? "&#9654;"
+          : "&#9660;";
+      });
+      trigSection.appendChild(trigHeader);
+
+      const trigList = document.createElement("div");
+      trigList.className = "module-list";
+
+      for (const trigNode of this.registry.triggerNodes) {
+        const item = document.createElement("div");
+        item.className = "method-item trigger-item";
+        item.draggable = true;
+        item.title = trigNode.description;
+        item.innerHTML = `
+          <span class="trigger-bolt" style="color:${trigNode.color}">&#9889;</span>
+          <span class="method-name">${trigNode.displayName}</span>
+          <span class="method-io">0&#8594;${(trigNode.outputs || []).length}</span>
+        `;
+
+        item.addEventListener("dragstart", (e) => {
+          e.dataTransfer.setData(
+            "text/plain",
+            JSON.stringify({
+              type: "trigger",
+              nodeType: `${trigNode.category}/${trigNode.name}`,
+            })
+          );
+        });
+        item.addEventListener("dblclick", () => {
+          this.addNodeAtCenter(`${trigNode.category}/${trigNode.name}`);
+        });
+
+        trigList.appendChild(item);
+      }
+
+      trigSection.appendChild(trigList);
+      sidebar.appendChild(trigSection);
     }
 
     // Search filter
@@ -709,6 +853,19 @@ class LogosLegosApp {
     // Run workflow
     document.getElementById("btn-run").addEventListener("click", () => {
       this.runWorkflow();
+    });
+
+    // Deploy workflow
+    document.getElementById("btn-deploy").addEventListener("click", () => {
+      this.deployWorkflow();
+    });
+
+    // Executions panel
+    document.getElementById("btn-executions").addEventListener("click", () => {
+      this.toggleExecutionsPanel();
+    });
+    document.getElementById("executions-refresh").addEventListener("click", () => {
+      this.fetchAndRenderExecutions();
     });
 
     // Toggle sidebar
@@ -827,6 +984,250 @@ class LogosLegosApp {
 
     content.innerHTML = html;
     panel.classList.add("visible");
+  }
+
+  // ── Executions Panel ───────────────────────────────────────────────
+
+  /**
+   * Toggle the executions history panel open/closed.
+   */
+  toggleExecutionsPanel() {
+    const panel = document.getElementById("executions-panel");
+    const isVisible = panel.classList.contains("visible");
+
+    // Close info panel if open
+    document.getElementById("info-panel").classList.remove("visible");
+
+    if (isVisible) {
+      panel.classList.remove("visible");
+      if (this._executionsRefreshTimer) {
+        clearInterval(this._executionsRefreshTimer);
+        this._executionsRefreshTimer = null;
+      }
+    } else {
+      panel.classList.add("visible");
+      this.fetchAndRenderExecutions();
+
+      // Auto-refresh every 5s when panel is open and bridge is connected
+      // Skip refresh if user is viewing expanded details
+      this._executionsRefreshTimer = setInterval(() => {
+        if (this.bridge.connected && panel.classList.contains("visible")) {
+          const hasExpanded = document.querySelector(".execution-row.expanded");
+          if (!hasExpanded) {
+            this.fetchAndRenderExecutions();
+          }
+        }
+      }, 5000);
+    }
+  }
+
+  /**
+   * Fetch execution history from the bridge and render it.
+   */
+  async fetchAndRenderExecutions() {
+    const list = document.getElementById("executions-list");
+
+    if (!this.bridge.connected) {
+      list.innerHTML = `<div class="executions-empty">Connect to bridge to see executions</div>`;
+      return;
+    }
+
+    try {
+      const response = await this.bridge.getExecutions();
+      const executions = Array.isArray(response) ? response : response?.executions || [];
+
+      if (!executions || executions.length === 0) {
+        list.innerHTML = `<div class="executions-empty">No executions yet</div>`;
+        return;
+      }
+
+      // Render most recent first
+      const sorted = [...executions].reverse();
+      list.innerHTML = "";
+
+      for (const exec of sorted) {
+        const row = document.createElement("div");
+        row.className = "execution-row";
+
+        const statusIcon = exec.success ? "✓" : "✗";
+        const statusClass = exec.success ? "success" : "error";
+        const triggerClass = exec.triggerType || "manual";
+        const relTime = this._relativeTime(exec.timestamp);
+        const duration = exec.duration ? `${exec.duration}ms` : "—";
+        const steps = exec.steps !== undefined ? `${exec.steps} step${exec.steps !== 1 ? "s" : ""}` : "";
+        const skipped = exec.skipped ? `, ${exec.skipped} skipped` : "";
+        const errors = exec.errors ? `, ${exec.errors} error${exec.errors !== 1 ? "s" : ""}` : "";
+
+        row.innerHTML = `
+          <div class="execution-summary">
+            <span class="execution-status-icon ${statusClass}">${statusIcon}</span>
+            <span class="execution-name">${this._escapeHtml(exec.workflowName || exec.workflowId || "unknown")}</span>
+            <span class="execution-trigger-badge ${triggerClass}">${exec.triggerType || "?"}</span>
+          </div>
+          <div class="execution-meta">
+            <span>${relTime}</span>
+            <span>${duration}</span>
+            <span>${steps}${skipped}${errors}</span>
+          </div>
+        `;
+
+        // Click to expand/collapse details
+        row.addEventListener("click", () => {
+          const existing = row.querySelector(".execution-details");
+          if (existing) {
+            existing.remove();
+            row.classList.remove("expanded");
+            return;
+          }
+          // Collapse other expanded rows
+          list.querySelectorAll(".execution-row.expanded").forEach(r => {
+            r.querySelector(".execution-details")?.remove();
+            r.classList.remove("expanded");
+          });
+
+          row.classList.add("expanded");
+          const details = document.createElement("div");
+          details.className = "execution-details";
+
+          if (exec.error) {
+            details.innerHTML = `<div style="color:var(--error)">Error: ${this._escapeHtml(exec.error)}</div>`;
+          } else if (exec.nodeResults && Object.keys(exec.nodeResults).length > 0) {
+            let html = "";
+            for (const [nodeId, result] of Object.entries(exec.nodeResults)) {
+              const label = `Node ${nodeId}`;
+              const json = JSON.stringify(result, null, 2);
+              const truncated = json.length > 1000 ? json.slice(0, 1000) + "\n... (truncated)" : json;
+              html += `
+                <div class="execution-node-result">
+                  <div class="node-label">${label}</div>
+                  <pre>${this._escapeHtml(truncated)}</pre>
+                </div>
+              `;
+            }
+            details.innerHTML = html;
+          } else {
+            details.innerHTML = `<div style="color:var(--text-muted)">No detailed results available</div>`;
+          }
+
+          row.appendChild(details);
+        });
+
+        list.appendChild(row);
+      }
+    } catch (e) {
+      list.innerHTML = `<div class="executions-empty">Error loading executions: ${e.message}</div>`;
+    }
+  }
+
+  /**
+   * Relative time string (e.g., "2m ago", "1h ago").
+   */
+  _relativeTime(isoString) {
+    if (!isoString) return "—";
+    const diff = Date.now() - new Date(isoString).getTime();
+    const secs = Math.floor(diff / 1000);
+    if (secs < 5) return "just now";
+    if (secs < 60) return `${secs}s ago`;
+    const mins = Math.floor(secs / 60);
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    const days = Math.floor(hrs / 24);
+    return `${days}d ago`;
+  }
+
+  /**
+   * Escape HTML entities.
+   */
+  _escapeHtml(str) {
+    if (typeof str !== "string") return str;
+    return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  // ── Link Data Tooltip ──────────────────────────────────────────────
+
+  /**
+   * Setup canvas hook to show link data on right-click.
+   * Called after canvas is created.
+   */
+  setupLinkTooltip() {
+    const canvas = this.canvas;
+    const graph = this.graph;
+
+    // Override the onShowLinkMenu callback on the canvas
+    canvas.onShowLinkMenu = (link, e) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      if (!link) return false;
+
+      // Resolve link — LiteGraph passes link objects with origin_id/origin_slot
+      let originId, outputSlot, targetId;
+      if (link.origin_id !== undefined) {
+        // LiteGraph link object format
+        originId = link.origin_id;
+        outputSlot = link.origin_slot;
+        targetId = link.target_id;
+      } else if (Array.isArray(link)) {
+        // Array format: [linkId, originId, originSlot, targetId, targetSlot, type]
+        originId = link[1];
+        outputSlot = link[2];
+        targetId = link[3];
+      } else {
+        return false;
+      }
+
+      const originNode = graph.getNodeById(originId);
+      const targetNode = graph.getNodeById(targetId);
+
+      if (!originNode) return false;
+
+      // Get data flowing through this link
+      let data;
+      if (originNode.getOutputData) {
+        data = originNode.getOutputData(outputSlot);
+      }
+      if (data === undefined && originNode._executionResult !== undefined) {
+        data = originNode._executionResult;
+      }
+
+      const originLabel = originNode.title || originNode.type || `Node ${originId}`;
+      const targetLabel = targetNode ? (targetNode.title || targetNode.type || `Node ${targetId}`) : "?";
+      const outputName = originNode.outputs?.[outputSlot]?.name || `out_${outputSlot}`;
+
+      // Position tooltip near the right-click
+      const tooltip = document.getElementById("link-tooltip");
+      const labelEl = document.getElementById("link-tooltip-label");
+      const dataEl = document.getElementById("link-tooltip-data");
+
+      labelEl.textContent = `${originLabel}.${outputName} → ${targetLabel}`;
+
+      if (data === undefined || data === null) {
+        dataEl.textContent = "(no data — run workflow first)";
+        dataEl.style.color = "var(--text-muted)";
+      } else {
+        const json = JSON.stringify(data, null, 2);
+        const truncated = json.length > 1000 ? json.slice(0, 1000) + "\n... (truncated)" : json;
+        dataEl.textContent = truncated;
+        dataEl.style.color = "";
+      }
+
+      // Position near the click
+      const container = document.getElementById("canvas-container");
+      const rect = container.getBoundingClientRect();
+      let left = e.clientX - rect.left + 10;
+      let top = e.clientY - rect.top + 10;
+
+      // Keep within bounds
+      if (left + 400 > rect.width) left = Math.max(10, rect.width - 410);
+      if (top + 280 > rect.height) top = Math.max(10, rect.height - 290);
+
+      tooltip.style.left = left + "px";
+      tooltip.style.top = top + "px";
+      tooltip.classList.remove("hidden");
+
+      return false; // Prevent default context menu
+    };
   }
 
   /**
